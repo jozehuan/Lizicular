@@ -9,7 +9,7 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 ### **Back-End (Núcleo)**
 - **Lenguaje:** Python 3.11+
 - **Framework:** FastAPI
-- **Base de Datos:** PostgreSQL 15 (Principal), MongoDB (Planificado para chatbot/logs)
+- **Base de Datos:** PostgreSQL 15 (Identidad), MongoDB 6 (Licitaciones y Documentos)
 - **Caché & Seguridad:** Redis 7 (Invalidación de tokens / Blacklist)
 - **ORM:** SQLAlchemy (AsyncPG)
 - **Infraestructura:** Docker & Docker Compose

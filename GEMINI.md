@@ -6,7 +6,7 @@ Esta aplicación es un proyecto para el desarrollo de una aplicación web llamad
 ## Stack Tecnológico
 - **BackEnd:** Python 3.10+ - FastAPI
 - **FrontEnd:** Node.js (Pendiente de inicialización)
-- **Base de Datos:** PostgreSQL 15 (Contenedorizado con Docker), MongoDB (Planificado)
+- **Base de Datos:** PostgreSQL 15 (Identidad y Auditoría), MongoDB 6 (Licitaciones y Documentos).
 - **Caché y Seguridad:** Redis 7 (Lista negra de tokens, invalidación inmediata).
 - **Seguridad:** JWT (JSON Web Tokens) y OAuth2
 - **Infraestructura:** Docker Compose para orquestación de servicios locales.

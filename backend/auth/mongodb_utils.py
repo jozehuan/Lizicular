@@ -1,0 +1,624 @@
+"""
+MongoDB utilities for tender management.
+CRUD operations for tenders, documents, and analysis results.
+"""
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
+from fastapi import HTTPException, status
+
+from .mongodb_schemas import (
+    Tender, TenderCreate, TenderUpdate,
+    TenderDocument, AnalysisResult,
+    TenderResponse
+)
+
+
+# ============================================================================
+# DATABASE CONNECTION
+# ============================================================================
+
+class MongoDB:
+    """MongoDB connection manager."""
+    
+    client: AsyncIOMotorClient = None
+    database: AsyncIOMotorDatabase = None
+    
+    @classmethod
+    async def connect_to_database(cls, mongodb_url: str, database_name: str):
+        """Connect to MongoDB."""
+        cls.client = AsyncIOMotorClient(mongodb_url)
+        cls.database = cls.client[database_name]
+        
+        # Create indexes
+        await cls.create_indexes()
+    
+    @classmethod
+    async def close_database_connection(cls):
+        """Close MongoDB connection."""
+        if cls.client:
+            cls.client.close()
+    
+    @classmethod
+    async def create_indexes(cls):
+        """Create MongoDB indexes."""
+        tenders = cls.database.tenders
+        
+        # 1. Búsqueda por workspace
+        await tenders.create_index("workspace_id")
+        
+        # 2. Unicidad de nombre dentro del workspace
+        await tenders.create_index(
+            [("workspace_id", 1), ("name", 1)],
+            unique=True
+        )
+        
+        # 3. Búsqueda de texto completo
+        await tenders.create_index([("search_text", "text")])
+        
+        # 4. Ordenar por fecha
+        await tenders.create_index([("created_at", -1)])
+        
+        # 5. Búsqueda por estado de extracción
+        await tenders.create_index("documents.extraction_status")
+        
+        # 6. Búsqueda por resultados
+        await tenders.create_index("analysis_results.id")
+
+
+# ============================================================================
+# TENDER CRUD OPERATIONS
+# ============================================================================
+
+async def create_tender(
+    db: AsyncIOMotorDatabase,
+    tender_data: TenderCreate
+) -> Tender:
+    """
+    Crea una nueva licitación.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_data: Datos de la licitación
+        
+    Returns:
+        Licitación creada
+        
+    Raises:
+        HTTPException 400: Si el nombre ya existe en el workspace
+    """
+    # Crear el objeto completo
+    tender_dict = {
+        "workspace_id": tender_data.workspace_id,
+        "name": tender_data.name,
+        "description": tender_data.description,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+        "created_by": tender_data.created_by,
+        "documents": [doc.model_dump() for doc in tender_data.documents],
+        "analysis_results": [],
+        "search_text": f"{tender_data.name} {tender_data.description or ''}".lower()
+    }
+    
+    try:
+        result = await db.tenders.insert_one(tender_dict)
+        
+        # Obtener el documento creado
+        created_tender = await db.tenders.find_one({"_id": result.inserted_id})
+        created_tender["_id"] = str(created_tender["_id"])
+        
+        return Tender(**created_tender)
+        
+    except DuplicateKeyError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ya existe una licitación con el nombre '{tender_data.name}' en este workspace"
+        )
+
+
+async def get_tender_by_id(
+    db: AsyncIOMotorDatabase,
+    tender_id: str
+) -> Optional[Tender]:
+    """
+    Obtiene una licitación por su ID.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación (ObjectId como string)
+        
+    Returns:
+        Licitación si existe, None si no
+    """
+    try:
+        tender = await db.tenders.find_one({"_id": ObjectId(tender_id)})
+        
+        if tender:
+            tender["_id"] = str(tender["_id"])
+            return Tender(**tender)
+        
+        return None
+        
+    except Exception:
+        return None
+
+
+async def get_tenders_by_workspace(
+    db: AsyncIOMotorDatabase,
+    workspace_id: str,
+    skip: int = 0,
+    limit: int = 100,
+    sort_by: str = "created_at",
+    sort_order: int = -1  # -1 descendente, 1 ascendente
+) -> List[Tender]:
+    """
+    Obtiene todas las licitaciones de un workspace.
+    
+    Args:
+        db: Base de datos MongoDB
+        workspace_id: UUID del workspace
+        skip: Número de registros a saltar (paginación)
+        limit: Número máximo de registros a devolver
+        sort_by: Campo por el que ordenar
+        sort_order: Orden (1 ascendente, -1 descendente)
+        
+    Returns:
+        Lista de licitaciones
+    """
+    cursor = db.tenders.find(
+        {"workspace_id": workspace_id}
+    ).sort(sort_by, sort_order).skip(skip).limit(limit)
+    
+    tenders = []
+    async for tender in cursor:
+        tender["_id"] = str(tender["_id"])
+        tenders.append(Tender(**tender))
+    
+    return tenders
+
+
+async def update_tender(
+    db: AsyncIOMotorDatabase,
+    tender_id: str,
+    update_data: TenderUpdate
+) -> Optional[Tender]:
+    """
+    Actualiza una licitación.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        update_data: Datos a actualizar
+        
+    Returns:
+        Licitación actualizada
+        
+    Raises:
+        HTTPException 404: Si la licitación no existe
+        HTTPException 400: Si el nuevo nombre ya existe
+    """
+    # Construir el update dict solo con campos no None
+    update_dict = {"updated_at": datetime.utcnow()}
+    
+    if update_data.name is not None:
+        update_dict["name"] = update_data.name
+    
+    if update_data.description is not None:
+        update_dict["description"] = update_data.description
+    
+    if update_data.documents is not None:
+        update_dict["documents"] = [doc.model_dump() for doc in update_data.documents]
+    
+    # Actualizar search_text si cambia el nombre
+    if update_data.name is not None:
+        tender = await get_tender_by_id(db, tender_id)
+        if tender:
+            update_dict["search_text"] = f"{update_data.name} {tender.description or ''}".lower()
+    
+    try:
+        result = await db.tenders.find_one_and_update(
+            {"_id": ObjectId(tender_id)},
+            {"$set": update_dict},
+            return_document=True
+        )
+        
+        if result:
+            result["_id"] = str(result["_id"])
+            return Tender(**result)
+        
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Licitación no encontrada"
+        )
+        
+    except DuplicateKeyError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ya existe una licitación con el nombre '{update_data.name}' en este workspace"
+        )
+
+
+async def delete_tender(
+    db: AsyncIOMotorDatabase,
+    tender_id: str
+) -> bool:
+    """
+    Elimina una licitación.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        
+    Returns:
+        True si se eliminó, False si no existía
+    """
+    result = await db.tenders.delete_one({"_id": ObjectId(tender_id)})
+    return result.deleted_count > 0
+
+
+async def count_tenders_in_workspace(
+    db: AsyncIOMotorDatabase,
+    workspace_id: str
+) -> int:
+    """
+    Cuenta el número de licitaciones en un workspace.
+    
+    Args:
+        db: Base de datos MongoDB
+        workspace_id: UUID del workspace
+        
+    Returns:
+        Número de licitaciones
+    """
+    count = await db.tenders.count_documents({"workspace_id": workspace_id})
+    return count
+
+
+# ============================================================================
+# DOCUMENT OPERATIONS
+# ============================================================================
+
+async def add_document_to_tender(
+    db: AsyncIOMotorDatabase,
+    tender_id: str,
+    document: TenderDocument
+) -> Optional[Tender]:
+    """
+    Agrega un documento a una licitación.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        document: Documento a agregar
+        
+    Returns:
+        Licitación actualizada
+        
+    Raises:
+        HTTPException 400: Si ya hay 5 documentos
+        HTTPException 404: Si la licitación no existe
+    """
+    # Primero verificar que no exceda el límite
+    tender = await get_tender_by_id(db, tender_id)
+    
+    if not tender:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Licitación no encontrada"
+        )
+    
+    if len(tender.documents) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se pueden agregar más de 5 documentos a una licitación"
+        )
+    
+    # Agregar el documento
+    result = await db.tenders.find_one_and_update(
+        {"_id": ObjectId(tender_id)},
+        {
+            "$push": {"documents": document.model_dump()},
+            "$set": {"updated_at": datetime.utcnow()}
+        },
+        return_document=True
+    )
+    
+    if result:
+        result["_id"] = str(result["_id"])
+        return Tender(**result)
+    
+    return None
+
+
+async def remove_document_from_tender(
+    db: AsyncIOMotorDatabase,
+    tender_id: str,
+    document_id: str
+) -> Optional[Tender]:
+    """
+    Elimina un documento de una licitación.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        document_id: ID del documento
+        
+    Returns:
+        Licitación actualizada
+        
+    Raises:
+        HTTPException 400: Si es el último documento
+        HTTPException 404: Si la licitación no existe
+    """
+    # Verificar que no es el último documento
+    tender = await get_tender_by_id(db, tender_id)
+    
+    if not tender:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Licitación no encontrada"
+        )
+    
+    if len(tender.documents) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede eliminar el último documento. Debe haber al menos 1 documento."
+        )
+    
+    # Eliminar el documento
+    result = await db.tenders.find_one_and_update(
+        {"_id": ObjectId(tender_id)},
+        {
+            "$pull": {"documents": {"id": document_id}},
+            "$set": {"updated_at": datetime.utcnow()}
+        },
+        return_document=True
+    )
+    
+    if result:
+        result["_id"] = str(result["_id"])
+        return Tender(**result)
+    
+    return None
+
+
+# ============================================================================
+# ANALYSIS RESULT OPERATIONS
+# ============================================================================
+
+async def add_analysis_result_to_tender(
+    db: AsyncIOMotorDatabase,
+    tender_id: str,
+    analysis_result: AnalysisResult
+) -> Optional[Tender]:
+    """
+    Agrega un resultado de análisis a una licitación.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        analysis_result: Resultado a agregar
+        
+    Returns:
+        Licitación actualizada
+        
+    Raises:
+        HTTPException 404: Si la licitación no existe
+    """
+    result = await db.tenders.find_one_and_update(
+        {"_id": ObjectId(tender_id)},
+        {
+            "$push": {"analysis_results": analysis_result.model_dump()},
+            "$set": {"updated_at": datetime.utcnow()}
+        },
+        return_document=True
+    )
+    
+    if result:
+        result["_id"] = str(result["_id"])
+        return Tender(**result)
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Licitación no encontrada"
+    )
+
+
+async def get_analysis_result_by_id(
+    db: AsyncIOMotorDatabase,
+    tender_id: str,
+    result_id: str
+) -> Optional[AnalysisResult]:
+    """
+    Obtiene un resultado de análisis específico.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        result_id: ID del resultado
+        
+    Returns:
+        Resultado si existe, None si no
+    """
+    tender = await db.tenders.find_one(
+        {
+            "_id": ObjectId(tender_id),
+            "analysis_results.id": result_id
+        },
+        {"analysis_results.$": 1}
+    )
+    
+    if tender and "analysis_results" in tender and len(tender["analysis_results"]) > 0:
+        return AnalysisResult(**tender["analysis_results"][0])
+    
+    return None
+
+
+async def delete_analysis_result(
+    db: AsyncIOMotorDatabase,
+    tender_id: str,
+    result_id: str
+) -> Optional[Tender]:
+    """
+    Elimina un resultado de análisis.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        result_id: ID del resultado
+        
+    Returns:
+        Licitación actualizada
+    """
+    result = await db.tenders.find_one_and_update(
+        {"_id": ObjectId(tender_id)},
+        {
+            "$pull": {"analysis_results": {"id": result_id}},
+            "$set": {"updated_at": datetime.utcnow()}
+        },
+        return_document=True
+    )
+    
+    if result:
+        result["_id"] = str(result["_id"])
+        return Tender(**result)
+    
+    return None
+
+
+# ============================================================================
+# SEARCH AND QUERY OPERATIONS
+# ============================================================================
+
+async def search_tenders(
+    db: AsyncIOMotorDatabase,
+    workspace_id: str,
+    search_query: str,
+    skip: int = 0,
+    limit: int = 100
+) -> List[Tender]:
+    """
+    Busca licitaciones por texto.
+    
+    Args:
+        db: Base de datos MongoDB
+        workspace_id: UUID del workspace
+        search_query: Texto a buscar
+        skip: Número de registros a saltar
+        limit: Número máximo de registros
+        
+    Returns:
+        Lista de licitaciones que coinciden
+    """
+    cursor = db.tenders.find(
+        {
+            "workspace_id": workspace_id,
+            "$text": {"$search": search_query}
+        },
+        {"score": {"$meta": "textScore"}}
+    ).sort([("score", {"$meta": "textScore"})]).skip(skip).limit(limit)
+    
+    tenders = []
+    async for tender in cursor:
+        tender["_id"] = str(tender["_id"])
+        tenders.append(Tender(**tender))
+    
+    return tenders
+
+
+async def get_tenders_by_extraction_status(
+    db: AsyncIOMotorDatabase,
+    workspace_id: str,
+    extraction_status: str
+) -> List[Tender]:
+    """
+    Obtiene licitaciones por estado de extracción de documentos.
+    
+    Args:
+        db: Base de datos MongoDB
+        workspace_id: UUID del workspace
+        extraction_status: Estado a filtrar (pending, processing, completed, failed)
+        
+    Returns:
+        Lista de licitaciones
+    """
+    cursor = db.tenders.find({
+        "workspace_id": workspace_id,
+        "documents.extraction_status": extraction_status
+    })
+    
+    tenders = []
+    async for tender in cursor:
+        tender["_id"] = str(tender["_id"])
+        tenders.append(Tender(**tender))
+    
+    return tenders
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+async def check_tender_exists(
+    db: AsyncIOMotorDatabase,
+    tender_id: str
+) -> bool:
+    """
+    Verifica si una licitación existe.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        
+    Returns:
+        True si existe, False si no
+    """
+    count = await db.tenders.count_documents({"_id": ObjectId(tender_id)})
+    return count > 0
+
+
+async def get_tender_statistics(
+    db: AsyncIOMotorDatabase,
+    workspace_id: str
+) -> Dict[str, Any]:
+    """
+    Obtiene estadísticas de un workspace.
+    
+    Args:
+        db: Base de datos MongoDB
+        workspace_id: UUID del workspace
+        
+    Returns:
+        Diccionario con estadísticas
+    """
+    pipeline = [
+        {"$match": {"workspace_id": workspace_id}},
+        {
+            "$group": {
+                "_id": None,
+                "total_tenders": {"$sum": 1},
+                "total_documents": {"$sum": {"$size": "$documents"}},
+                "total_results": {"$sum": {"$size": "$analysis_results"}},
+                "avg_documents_per_tender": {"$avg": {"$size": "$documents"}},
+                "avg_results_per_tender": {"$avg": {"$size": "$analysis_results"}}
+            }
+        }
+    ]
+    
+    cursor = db.tenders.aggregate(pipeline)
+    result = await cursor.to_list(length=1)
+    
+    if result:
+        stats = result[0]
+        stats.pop("_id", None)
+        return stats
+    
+    return {
+        "total_tenders": 0,
+        "total_documents": 0,
+        "total_results": 0,
+        "avg_documents_per_tender": 0,
+        "avg_results_per_tender": 0
+    }
