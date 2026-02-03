@@ -9,29 +9,53 @@ from typing import AsyncGenerator, List, Any, Annotated
 import os
 import secrets
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Cookie
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, or_
 
-from backend.authentication.models import Base, User
-from backend.authentication.schemas import UserCreate, UserResponse, Token, UserLogin, OAuthUserInfo
-from backend.authentication.auth_utils import (
+from backend.auth.models import Base, User
+from backend.auth.schemas import UserCreate, UserResponse, Token, UserLogin, OAuthUserInfo
+from backend.auth.auth_utils import (
     get_password_hash,
     authenticate_user,
     create_access_token,
+    create_refresh_token,
+    add_token_to_blacklist,
+    is_token_blacklisted,
     get_current_active_user,
     get_user_by_email,
-    ACCESS_TOKEN_EXPIRE_MINUTES
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+    SECRET_KEY,
+    ALGORITHM,
+    oauth2_scheme
 )
-from backend.authentication.oauth_config import OAuthConfig
-from backend.authentication.oauth_utils import OAuthProvider, get_oauth_user
-from backend.authentication.database import engine, get_db
+from jose import jwt, JWTError
+from backend.auth.oauth_config import OAuthConfig
+from backend.auth.oauth_utils import OAuthProvider, get_oauth_user
+from backend.auth.database import engine, get_db
+from backend.auth.redis_client import get_redis
+from backend.auth.audit_utils import log_auth_event, create_audit_log
+from backend.auth.models import AuditAction, AuditCategory
 
 # Store for OAuth state tokens (in production, use Redis or database)
 oauth_states = {}
+
+
+def set_refresh_token_cookie(response: Response, refresh_token: str):
+    """Configura la cookie HttpOnly para el Refresh Token."""
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        expires=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        samesite="lax",
+        secure=False,  # Cambiar a True en producción con HTTPS
+    )
 
 
 @asynccontextmanager
@@ -131,6 +155,7 @@ async def get_or_create_oauth_user(
 )
 async def signup(
     user_data: UserCreate,
+    request: Request,
     db: Any = Depends(get_db)
 ) -> UserResponse:
     """
@@ -138,6 +163,7 @@ async def signup(
     
     Args:
         user_data: User registration data (email, password, full_name)
+        request: FastAPI Request object
         db: Database session
         
     Returns:
@@ -150,6 +176,14 @@ async def signup(
     existing_user = await get_user_by_email(db, user_data.email)
     
     if existing_user:
+        await log_auth_event(
+            db=db,
+            action=AuditAction.LOGIN_FAILED,
+            email=user_data.email,
+            success=False,
+            request=request,
+            details="Signup attempt with existing email"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
@@ -171,6 +205,17 @@ async def signup(
         await db.commit()
         await db.refresh(new_user)
         
+        # Log successful signup
+        await log_auth_event(
+            db=db,
+            action=AuditAction.LOGIN_SUCCESS, # Could use a SIGNUP action if defined, but LOGIN_SUCCESS works for now or generic AuditAction
+            user_id=new_user.id,
+            email=new_user.email,
+            success=True,
+            request=request,
+            details="Local account created"
+        )
+        
     except IntegrityError:
         await db.rollback()
         raise HTTPException(
@@ -188,6 +233,8 @@ async def signup(
     tags=["Authentication"]
 )
 async def login(
+    request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Any = Depends(get_db)
 ) -> Token:
@@ -195,6 +242,8 @@ async def login(
     Authenticate user and return JWT access token.
     
     Args:
+        request: FastAPI Request object
+        response: FastAPI Response object
         form_data: OAuth2 form with username (email) and password
         db: Database session
         
@@ -207,17 +256,40 @@ async def login(
     user = await authenticate_user(db, form_data.username, form_data.password)
     
     if not user:
+        await log_auth_event(
+            db=db,
+            action=AuditAction.LOGIN_FAILED,
+            email=form_data.username,
+            success=False,
+            request=request,
+            details="Invalid credentials"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Create access token
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Create access token (15 mins)
     access_token = create_access_token(
-        data={"sub": user.email, "user_id": str(user.id)},
-        expires_delta=access_token_expires
+        data={"sub": user.email, "user_id": str(user.id)}
+    )
+    
+    # Create refresh token (7 days)
+    refresh_token = create_refresh_token(
+        data={"sub": user.email, "user_id": str(user.id)}
+    )
+    
+    # Set refresh token in cookie
+    set_refresh_token_cookie(response, refresh_token)
+    
+    await log_auth_event(
+        db=db,
+        action=AuditAction.LOGIN_SUCCESS,
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        request=request
     )
     
     return Token(access_token=access_token, token_type="bearer")
@@ -230,6 +302,8 @@ async def login(
     tags=["Authentication"]
 )
 async def login_json(
+    request: Request,
+    response: Response,
     credentials: UserLogin,
     db: Any = Depends(get_db)
 ) -> Token:
@@ -237,6 +311,8 @@ async def login_json(
     Alternative login endpoint that accepts JSON instead of form data.
     
     Args:
+        request: FastAPI Request object
+        response: FastAPI Response object
         credentials: User login credentials (email and password)
         db: Database session
         
@@ -249,17 +325,40 @@ async def login_json(
     user = await authenticate_user(db, credentials.email, credentials.password)
     
     if not user:
+        await log_auth_event(
+            db=db,
+            action=AuditAction.LOGIN_FAILED,
+            email=credentials.email,
+            success=False,
+            request=request,
+            details="Invalid JSON login"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Create access token
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Create access token (15 mins)
     access_token = create_access_token(
-        data={"sub": user.email, "user_id": str(user.id)},
-        expires_delta=access_token_expires
+        data={"sub": user.email, "user_id": str(user.id)}
+    )
+    
+    # Create refresh token (7 days)
+    refresh_token = create_refresh_token(
+        data={"sub": user.email, "user_id": str(user.id)}
+    )
+    
+    # Set refresh token in cookie
+    set_refresh_token_cookie(response, refresh_token)
+    
+    await log_auth_event(
+        db=db,
+        action=AuditAction.LOGIN_SUCCESS,
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        request=request
     )
     
     return Token(access_token=access_token, token_type="bearer")
@@ -270,7 +369,7 @@ async def login_json(
     summary="Initiate OAuth login",
     tags=["OAuth2"]
 )
-async def oauth_login(provider: str, request: Request):
+async def oauth_login(provider: str, request: Request, db: Any = Depends(get_db)):
     """
     Initiate OAuth2 login flow with a provider.
     
@@ -279,6 +378,7 @@ async def oauth_login(provider: str, request: Request):
     Args:
         provider: OAuth provider name
         request: Request object
+        db: Database session
         
     Returns:
         Redirect to OAuth provider's authorization page
@@ -288,6 +388,15 @@ async def oauth_login(provider: str, request: Request):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"OAuth provider '{provider}' is not enabled or configured"
         )
+    
+    # Log attempt
+    await log_auth_event(
+        db=db,
+        action=AuditAction.OAUTH_LOGIN,
+        success=True,
+        request=request,
+        details=f"Initiating OAuth login with {provider}"
+    )
     
     # Generate state token for CSRF protection
     state = secrets.token_urlsafe(32)
@@ -313,6 +422,8 @@ async def oauth_callback(
     provider: str,
     code: str,
     state: str,
+    request: Request,
+    response: Response,
     db: Any = Depends(get_db)
 ):
     """
@@ -322,6 +433,8 @@ async def oauth_callback(
         provider: OAuth provider name
         code: Authorization code from provider
         state: State token for CSRF validation
+        request: FastAPI Request object
+        response: FastAPI Response object
         db: Database session
         
     Returns:
@@ -329,6 +442,13 @@ async def oauth_callback(
     """
     # Validate state token
     if state not in oauth_states:
+        await log_auth_event(
+            db=db,
+            action=AuditAction.LOGIN_FAILED,
+            success=False,
+            request=request,
+            details=f"Invalid OAuth state for {provider}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid state token"
@@ -346,6 +466,13 @@ async def oauth_callback(
     try:
         oauth_info = await get_oauth_user(provider, code)
     except Exception as e:
+        await log_auth_event(
+            db=db,
+            action=AuditAction.LOGIN_FAILED,
+            success=False,
+            request=request,
+            details=f"OAuth fetch info failed for {provider}: {str(e)}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to authenticate with {provider}: {str(e)}"
@@ -354,14 +481,125 @@ async def oauth_callback(
     # Get or create user
     user = await get_or_create_oauth_user(db, oauth_info)
     
-    # Create access token
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Create access token (15 mins)
     access_token = create_access_token(
-        data={"sub": user.email, "user_id": str(user.id)},
-        expires_delta=access_token_expires
+        data={"sub": user.email, "user_id": str(user.id)}
+    )
+    
+    # Create refresh token (7 days)
+    refresh_token = create_refresh_token(
+        data={"sub": user.email, "user_id": str(user.id)}
+    )
+    
+    # Set refresh token in cookie
+    set_refresh_token_cookie(response, refresh_token)
+    
+    await log_auth_event(
+        db=db,
+        action=AuditAction.OAUTH_LOGIN,
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        request=request,
+        provider=provider
     )
     
     return Token(access_token=access_token, token_type="bearer")
+
+
+@app.post(
+    "/auth/refresh",
+    response_model=Token,
+    summary="Refresh access token using refresh token from cookie",
+    tags=["Authentication"]
+)
+async def refresh_access_token(
+    request: Request,
+    response: Response,
+    refresh_token: str | None = Cookie(None),
+    db: Any = Depends(get_db),
+    redis: Any = Depends(get_redis)
+) -> Token:
+    """
+    Endpoint para obtener un nuevo Access Token usando el Refresh Token de la cookie.
+    """
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        # Validar el refresh token
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        jti: str = payload.get("jti")
+        
+        if email is None or payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
+            
+        # Comprobar si el refresh token ha sido invalidado
+        if jti and await is_token_blacklisted(redis, jti):
+            raise HTTPException(status_code=401, detail="Refresh token has been revoked")
+            
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    # Verificar que el usuario existe y está activo
+    user = await get_user_by_email(db, email)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User inactive or not found")
+
+    # Invalida el refresh token antiguo (rotación)
+    if jti:
+        await add_token_to_blacklist(redis, jti, REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60)
+
+    # Generar nuevo Access Token (15 mins)
+    new_access_token = create_access_token(data={"sub": user.email, "user_id": str(user.id)})
+
+    # Generar nuevo Refresh Token y actualizar cookie
+    new_refresh_token = create_refresh_token(data={"sub": user.email, "user_id": str(user.id)})
+    set_refresh_token_cookie(response, new_refresh_token)
+
+    return Token(access_token=new_access_token, token_type="bearer")
+
+
+@app.post(
+    "/auth/logout",
+    summary="Logout and clear refresh token cookie",
+    tags=["Authentication"]
+)
+async def logout(
+    response: Response,
+    token: str = Depends(oauth2_scheme),
+    refresh_token: str | None = Cookie(None),
+    redis: Any = Depends(get_redis)
+):
+    """
+    Cierra la sesión eliminando la cookie del refresh token e invalidando los tokens actuales en Redis.
+    """
+    # Invalidar Access Token
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        jti = payload.get("jti")
+        if jti:
+            await add_token_to_blacklist(redis, jti, ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+    except JWTError:
+        pass # Token ya inválido o malformado
+
+    # Invalidar Refresh Token
+    if refresh_token:
+        try:
+            payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+            jti = payload.get("jti")
+            if jti:
+                await add_token_to_blacklist(redis, jti, REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60)
+        except JWTError:
+            pass
+
+    response.delete_cookie(key="refresh_token")
+    return {"message": "Logged out successfully and tokens invalidated"}
 
 
 @app.get(
@@ -371,6 +609,8 @@ async def oauth_callback(
     tags=["Users"]
 )
 async def read_users_me(
+    request: Request,
+    db: Any = Depends(get_db),
     current_user: Any = Depends(get_current_active_user)
 ) -> UserResponse:
     """
@@ -379,11 +619,24 @@ async def read_users_me(
     This is a protected endpoint that requires a valid JWT token.
     
     Args:
+        request: FastAPI Request object
+        db: Database session
         current_user: Current authenticated user (from JWT token)
         
     Returns:
         Current user information
     """
+    # Log profile view
+    await create_audit_log(
+        db=db,
+        category=AuditCategory.AUTH,
+        action=AuditAction.USER_VIEW,
+        user_id=current_user.id,
+        payload={"path": str(request.url.path)},
+        success=True,
+        ip_address=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
     return UserResponse.model_validate(current_user)
 
 

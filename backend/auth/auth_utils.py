@@ -2,7 +2,7 @@
 Authentication utilities for password hashing and JWT token management.
 """
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
@@ -10,10 +10,11 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import os
-
+import uuid
 from .models import User
 from .schemas import TokenData
 from .database import get_db
+from .redis_client import get_redis
 
 
 # Password hashing context with bcrypt
@@ -25,7 +26,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 # JWT Configuration
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+ACCESS_TOKEN_EXPIRE_MINUTES = 15
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -55,28 +57,44 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+def create_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """
-    Create a JWT access token.
-    
-    Args:
-        data: Dictionary containing the claims to encode in the token
-        expires_delta: Optional custom expiration time
-        
-    Returns:
-        Encoded JWT token string
+    Create a JWT token (Access or Refresh) with a unique JTI.
     """
     to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Añadir JTI único para identificación y lista negra
+    to_encode.update({
+        "exp": expire,
+        "jti": str(uuid.uuid4())
+    })
     
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    """Helper to create an access token."""
+    token_data = data.copy()
+    token_data.update({"type": "access"})
+    return create_token(token_data, expires_delta=expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+
+
+def create_refresh_token(data: dict) -> str:
+    """Helper to create a refresh token (7 days)."""
+    token_data = data.copy()
+    token_data.update({"type": "refresh"})
+    return create_token(token_data, expires_delta=timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+
+
+async def add_token_to_blacklist(redis_client: Any, jti: str, expire_seconds: int):
+    """Añade un token JTI a la lista negra en Redis."""
+    await redis_client.setex(f"blacklist:{jti}", expire_seconds, "true")
+
+
+async def is_token_blacklisted(redis_client: Any, jti: str) -> bool:
+    """Comprueba si un token JTI está en la lista negra."""
+    return await redis_client.get(f"blacklist:{jti}") is not None
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -121,7 +139,8 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> User
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Any = Depends(get_db)
+    db: Any = Depends(get_db),
+    redis: Any = Depends(get_redis)
 ) -> Any:
     """
     Dependency to get the current authenticated user from JWT token.
@@ -129,6 +148,7 @@ async def get_current_user(
     Args:
         token: JWT token from Authorization header
         db: Database session
+        redis: Redis client
         
     Returns:
         Current authenticated user
@@ -145,9 +165,18 @@ async def get_current_user(
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str | None = payload.get("sub")
+        jti: str | None = payload.get("jti")
         
-        if email is None:
+        if email is None or payload.get("type") != "access":
             raise credentials_exception
+        
+        # Comprobar si el token ha sido invalidado en Redis
+        if jti and await is_token_blacklisted(redis, jti):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         
         token_data = TokenData(email=email)
         
@@ -166,7 +195,6 @@ async def get_current_user(
         )
     
     return user
-
 
 async def get_current_active_user(
     current_user: Any = Depends(get_current_user)

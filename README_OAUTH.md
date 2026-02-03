@@ -412,20 +412,16 @@ app.add_middleware(
 ## 📁 Estructura del Proyecto
 
 ```
-auth-system/
+backend/
 ├── main.py              # FastAPI app y endpoints
-├── models.py            # Modelos SQLAlchemy
-├── schemas.py           # Schemas Pydantic
-├── auth_utils.py        # Utilidades de autenticación local
-├── oauth_config.py      # Configuración OAuth providers
-├── oauth_utils.py       # Utilidades OAuth
-├── requirements.txt     # Dependencias
-├── .env.example         # Variables de entorno
-├── .gitignore          # Git ignore
-├── README.md           # Este archivo
-├── OAUTH_SETUP.md      # Guía detallada OAuth
-├── test_main.py        # Tests
-└── example_usage.py    # Script de ejemplo
+├── auth/                # Módulo de identidad y seguridad
+│   ├── models.py        # Modelos SQLAlchemy
+│   ├── schemas.py       # Schemas Pydantic
+│   ├── auth_utils.py    # Utilidades local
+│   └── ...
+├── database/            # Infraestructura DB
+└── tests/               # Pruebas automatizadas
+    └── test_auth.py     # Suite de tests de seguridad
 ```
 
 ## 🔄 Flujo de Autenticación
@@ -464,8 +460,7 @@ El sistema soporta vincular cuentas OAuth con cuentas locales existentes:
 
 ## 📊 Modelo de Base de Datos
 
-### Tabla `users`
-
+### Tabla `users` (Identidad)
 | Campo            | Tipo      | Descripción                        |
 |------------------|-----------|------------------------------------|
 | id               | UUID      | Primary key                        |
@@ -476,8 +471,24 @@ El sistema soporta vincular cuentas OAuth con cuentas locales existentes:
 | oauth_provider   | String    | Proveedor OAuth (nullable)         |
 | oauth_id         | String    | ID del usuario en proveedor        |
 | profile_picture  | Text      | URL de foto de perfil              |
-| created_at       | DateTime  | Fecha de creación                  |
-| updated_at       | DateTime  | Última actualización               |
+
+### Tabla `workspaces` (Colaboración)
+| Campo            | Tipo      | Descripción                        |
+|------------------|-----------|------------------------------------|
+| id               | UUID      | Primary key                        |
+| name             | String    | Nombre del workspace               |
+| owner_id         | UUID      | FK a users.id (Propietario)        |
+| is_active        | Boolean   | Estado del workspace               |
+
+### Tabla `audit_logs` (Trazabilidad Universal)
+| Campo            | Tipo      | Descripción                        |
+|------------------|-----------|------------------------------------|
+| id               | UUID      | Primary key                        |
+| user_id          | UUID      | Usuario que ejecutó la acción      |
+| category         | Enum      | AUTH, WORKSPACE, TENDER, etc.      |
+| action           | Enum      | Acción específica (LOGIN, CREATE..) |
+| payload          | JSONB     | Datos detallados del evento        |
+| success          | Boolean   | Resultado de la operación           |
 
 ## 🐛 Troubleshooting
 

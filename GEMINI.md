@@ -7,20 +7,31 @@ Esta aplicación es un proyecto para el desarrollo de una aplicación web llamad
 - **BackEnd:** Python 3.10+ - FastAPI
 - **FrontEnd:** Node.js (Pendiente de inicialización)
 - **Base de Datos:** PostgreSQL 15 (Contenedorizado con Docker), MongoDB (Planificado)
+- **Caché y Seguridad:** Redis 7 (Lista negra de tokens, invalidación inmediata).
 - **Seguridad:** JWT (JSON Web Tokens) y OAuth2
 - **Infraestructura:** Docker Compose para orquestación de servicios locales.
+- **Estándares:** Tipado moderno (`Tipo | None`) y compatibilidad con Pydantic v2.
 
 ## Estructura Actual
 - `/backend`
-  - `/authentication`: Sistema centralizado de autenticación.
-    - Soporte para Login/Registro local (Email/Password).
-    - Integración con OAuth2 (Google, Facebook, GitHub, Microsoft).
-    - Gestión de sesiones con JWT.
-    - Persistencia con SQLAlchemy (AsyncPG).
-- `docker-compose.yml`: Configuración de servicios de infraestructura (PostgreSQL).
+  - `main.py`: Punto de entrada de la API.
+  - `/auth`: Lógica de autenticación, modelos (RBAC) y auditoría.
+    - `redis_client.py`: Configuración del cliente Redis.
+  - `/database`: Configuración de persistencia e inicialización.
+    - `/postgres-init`: Scripts SQL para Docker.
+  - `/tests`: Pruebas automatizadas (test_auth.py).
+- `docker-compose.yml`: Orquestación de servicios locales (PostgreSQL, Redis).
 
 ## Estado del Proyecto
-El módulo de autenticación es completamente funcional y ha sido optimizado con estándares modernos de Python 3.10+. Se ha integrado Docker para facilitar el despliegue de la base de datos PostgreSQL. El sistema está listo para comenzar la integración con la lógica de negocio de licitaciones y el desarrollo del frontend.
+El módulo de autenticación y seguridad es completamente funcional y ha sido expandido con capacidades de nivel empresarial:
+1. **Seguridad Avanzada:** Optimizado con estándares modernos de Python 3.10+ y Pydantic v2.
+2. **Infraestructura de Datos:** PostgreSQL para identidad y auditoría; MongoDB planificado para licitaciones y documentos.
+3. **Control de Acceso:** Implementación de Workspaces para organizar la colaboración en licitaciones.
+4. **Trazabilidad:** Sistema de auditoría universal listo para cumplimiento (compliance) y monitoreo de seguridad.
+5. **Estrategia de Seguridad de Tokens:** Implementación de Access Tokens efímeros (15m) y Refresh Tokens persistentes en cookies HttpOnly para protección contra XSS.
+6. **Invalidación de Tokens (Redis Blacklist):** Uso de Redis para invalidar inmediatamente tokens durante el logout o rotación, garantizando que un token robado no pueda ser reutilizado.
+7. **Preparación para el Chatbot:** La estructura de auditoría y workspaces está diseñada para integrarse con los flujos de automatización y el chatbot futuro.
+
 
 ## Reglas de Oro (Instrucciones para Gemini)
 1. Siempre responde en español.

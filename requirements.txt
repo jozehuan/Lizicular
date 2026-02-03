@@ -21,3 +21,6 @@ pydantic[email]==2.9.*
 
 # Environment Variables
 python-dotenv==1.0.0
+
+# Redis
+redis==5.0.1
