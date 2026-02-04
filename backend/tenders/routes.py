@@ -8,9 +8,10 @@ from sqlalchemy import select
 from backend.auth.database import get_db
 from backend.auth.auth_utils import get_current_active_user
 from backend.auth.audit_utils import log_tender_event, create_audit_log
-from backend.auth.models import AuditAction, AuditCategory, WorkspaceRole, WorkspaceMember
-from backend.mongodb.schemas import Tender, TenderCreate, TenderUpdate, AnalysisResult
-from backend.mongodb.tenders_utils import (
+from backend.auth.models import AuditAction, AuditCategory
+from backend.workspaces.models import WorkspaceRole, WorkspaceMember
+from backend.tenders.schemas import Tender, TenderCreate, TenderUpdate, AnalysisResult
+from backend.tenders.tenders_utils import (
     create_tender, get_tender_by_id, get_tenders_by_workspace,
     update_tender, delete_tender, add_analysis_result_to_tender,
     delete_analysis_result, MongoDB

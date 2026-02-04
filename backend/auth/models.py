@@ -52,61 +52,6 @@ class User(Base):
         auth_method = f"OAuth({self.oauth_provider})" if self.is_oauth_user else "Local"
         return f"<User(id={self.id}, email={self.email}, auth={auth_method})>"
 
-class WorkspaceRole(str, enum.Enum):
-    """Roles disponibles en un workspace."""
-    OWNER = "OWNER"      # Creador del workspace, control total
-    ADMIN = "ADMIN"      # Administrador, puede gestionar miembros
-    EDITOR = "EDITOR"    # Puede editar licitaciones
-    VIEWER = "VIEWER"    # Solo lectura
-
-class Workspace(Base):
-    """
-    Workspace model para organizar licitaciones.
-    Los datos de licitaciones viven en MongoDB con referencia a workspace_id.
-    """
-    __tablename__ = "workspaces"
-
-    id = Column(UUID(as_uuid=True), primary_key=True,default=uuid.uuid4,index=True)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),nullable=False, index=True)
-    is_active = Column(Boolean,default=True,nullable=False)
-    created_at = Column(DateTime,default=datetime.utcnow,nullable=False)
-    updated_at = Column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow,nullable=False)
-
-    # Relaciones
-    owner = relationship("User",back_populates="owned_workspaces")
-    members = relationship("WorkspaceMember",back_populates="workspace",cascade="all, delete-orphan",passive_deletes=True)
-    
-    __table_args__ = (Index('ix_workspaces_owner_active', 'owner_id', 'is_active'),)
-
-    def __repr__(self) -> str:
-        return f"<Workspace(id={self.id}, name={self.name}, owner_id={self.owner_id})>"
-
-class WorkspaceMember(Base):
-    """
-    Tabla asociativa para miembros de workspace con roles.
-    Implementa RBAC a nivel de workspace.
-    """
-    __tablename__ = "workspace_members"
-
-    workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"),primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    role = Column(Enum(WorkspaceRole), default=WorkspaceRole.VIEWER,nullable=False)
-    joined_at = Column(DateTime, default=datetime.utcnow,nullable=False)
-
-    # Relaciones
-    user = relationship("User", back_populates="workspace_memberships")
-    workspace = relationship("Workspace", back_populates="members")
-    
-    __table_args__ = (
-        Index('ix_workspace_members_user_id', 'user_id'),
-        Index('ix_workspace_members_workspace_id', 'workspace_id'),
-    )
-
-    def __repr__(self) -> str:
-        return f"<WorkspaceMember(workspace_id={self.workspace_id}, user_id={self.user_id}, role={self.role})>"
-
 class AuditCategory(str, enum.Enum):
     """Categorías de eventos auditables."""
     AUTH = "AUTH"                # Eventos de autenticación

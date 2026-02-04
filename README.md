@@ -40,30 +40,39 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 
 ## 📂 Estructura del Proyecto
 
-- `backend/main.py`: Punto de entrada de la aplicación (incluye router para Workspaces).
-- `backend/auth/`: Lógica de autenticación, RBAC y auditoría.
-- `backend/mongodb/`: Gestión de licitaciones y documentos (NoSQL).
+- `backend/main.py`: Punto de entrada de la aplicación (orquesta los routers).
+- `backend/auth/`: Lógica de autenticación.
+  - `models.py`: Modelos SQLAlchemy para usuarios y auditoría.
+  - `schemas.py`: Esquemas Pydantic para autenticación.
+  - `auth_utils.py`: Utilidades de autenticación.
+  - `routes.py`: Endpoints de autenticación y OAuth2.
+  - `redis_client.py`: Configuración del cliente Redis.
+- `backend/workspaces/`: Lógica de gestión de workspaces.
+  - `models.py`: Modelos SQLAlchemy para workspaces y miembros.
+  - `schemas.py`: Esquemas Pydantic para workspaces.
+  - `routes.py`: Endpoints CRUD para workspaces y miembros.
+- `backend/tenders/`: Gestión de licitaciones y documentos (NoSQL).
 - `backend/database/`: Scripts de inicialización y configuración de DB.
-- `backend/tests/`: Pruebas automatizadas (test_auth.py, test_workspaces.py).
+- `backend/tests/`: Pruebas automatizadas (test_auth.py, test_workspaces.py, test_tenders.py).
 
-## 🔌 API Endpoints (Módulo de Autenticación)
+## 🔌 API Endpoints
 
-### **Autenticación Local**
+### **Autenticación Local (en `/auth/routes.py`)**
 - `POST /auth/signup`: Registro de nuevos usuarios.
 - `POST /auth/login`: Login mediante Form Data (estándar OAuth2) + Set Refresh Cookie.
 - `POST /auth/login/json`: Login mediante payload JSON + Set Refresh Cookie.
 - `POST /auth/refresh`: Refresca el Access Token usando el Refresh Token de la cookie.
 - `POST /auth/logout`: Elimina la cookie de sesión.
 
-### **Autenticación Externa (OAuth2)**
+### **Autenticación Externa (OAuth2) (en `/auth/routes.py`)**
 - `GET /auth/{provider}/login`: Inicia el flujo de autenticación con un proveedor.
 - `GET /auth/{provider}/callback`: Endpoint de retorno para el intercambio de tokens.
 - `GET /auth/providers`: Lista los proveedores externos configurados.
 
-### **Usuarios**
+### **Usuarios (en `/auth/routes.py`)**
 - `GET /users/me`: Obtiene la información del perfil del usuario autenticado (Protegido con JWT).
 
-### **Workspaces (Colaboración)**
+### **Workspaces (Colaboración) (en `/workspaces/routes.py`)**
 - `POST /workspaces/`: Crea un nuevo workspace (el creador es el OWNER).
 - `GET /workspaces/`: Lista los workspaces a los que pertenece el usuario.
 - `GET /workspaces/detailed/`: Lista los workspaces con un resumen de sus licitaciones y el rol del usuario.
@@ -71,24 +80,24 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - `PUT /workspaces/{workspace_id}`: Actualiza un workspace (solo OWNER).
 - `DELETE /workspaces/{workspace_id}`: Elimina un workspace (solo OWNER).
 
-#### **Miembros del Workspace**
+#### **Miembros del Workspace (en `/workspaces/routes.py`)**
 - `POST /workspaces/{workspace_id}/members`: Añade un usuario al workspace con un rol específico (solo OWNER/ADMIN).
 - `GET /workspaces/{workspace_id}/members`: Lista todos los miembros del workspace.
 - `PUT /workspaces/{workspace_id}/members/{user_id}`: Actualiza el rol de un miembro (solo OWNER/ADMIN).
 - `DELETE /workspaces/{workspace_id}/members/{user_id}`: Elimina un miembro del workspace (solo OWNER/ADMIN).
 
-### **Licitaciones (Tenders)**
+### **Licitaciones (Tenders) (en `/mongodb/routes.py`)**
 - `POST /tenders`: Crea una nueva licitación (Requiere rol EDITOR).
 - `GET /tenders/workspace/{workspace_id}`: Lista licitaciones de un workspace.
 - `GET /tenders/{tender_id}`: Obtiene el detalle completo de una licitación.
 - `PATCH /tenders/{tender_id}`: Actualiza datos de una licitación (Requiere rol EDITOR).
 - `DELETE /tenders/{tender_id}`: Elimina una licitación (Requiere rol ADMIN).
 
-### **Análisis de Licitaciones**
+### **Análisis de Licitaciones (en `/mongodb/routes.py`)**
 - `POST /tenders/{tender_id}/analysis`: Añade resultados de análisis a una licitación (Requiere rol EDITOR).
 - `DELETE /tenders/{tender_id}/analysis/{result_id}`: Elimina un análisis específico.
 
-### **Utilidad**
+### **Utilidad (en `/main.py`)**
 - `GET /`: Health check del sistema.
 
 ## 📝 Resumen de Progreso
@@ -96,11 +105,11 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y base de seguridad:
 
 1.  **Base de Datos Contenedorizada:** Configuración de PostgreSQL mediante Docker Compose para un entorno de desarrollo reproducible.
-2.  **Módulo de Autenticación Híbrida:** Implementación completa del sistema de registro y login, soportando tanto credenciales locales como OAuth2.
+2.  **Módulo de Autenticación Híbrida:** Implementación completa del sistema de registro y login, soportando tanto credenciales locales como OAuth2, con toda la lógica modularizada en `backend/auth/`.
 3.  **Refactorización de Tipos:** Código optimizado para Python 3.10+ usando el estándar `Tipo | None` y Pydantic v2.
 4.  **Infraestructura de Pruebas:** Creación de una suite de tests automáticos con `pytest` y `httpx`, además de colecciones en `Postman` para validación manual del flujo de usuarios.
 5.  **Corrección de Dependencias:** Ajuste de versiones de seguridad (`bcrypt`) para asegurar compatibilidad en Windows y entornos asíncronos.
-6.  **Gestión de Workspaces:** Implementación completa de la creación, gestión y control de acceso (RBAC) para organizar equipos y licitaciones.
+6.  **Gestión de Workspaces:** Implementación completa de la creación, gestión y control de acceso (RBAC) para organizar equipos y licitaciones, con toda la lógica modularizada en `backend/workspaces/`.
 7.  **Sistema de Auditoría de Grado Empresarial:** Motor de logs universal con soporte para categorías (Auth, Workspace, Tender, etc.) y utilidades de consulta avanzada, detección de amenazas y exportación para cumplimiento.
 
 ---

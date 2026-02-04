@@ -14,16 +14,24 @@ Esta aplicación es un proyecto para el desarrollo de una aplicación web llamad
 
 ## Estructura Actual
 - `/backend`
-  - `main.py`: Punto de entrada de la API (incluye router para Workspaces).
-  - `/auth`: Lógica de autenticación, modelos (RBAC), auditoría y esquemas (incluye esquemas de Workspaces).
+  - `main.py`: Punto de entrada de la API (orquesta los routers).
+  - `/auth`: Lógica de autenticación.
+    - `models.py`: Modelos SQLAlchemy para usuarios y auditoría.
+    - `schemas.py`: Esquemas Pydantic para autenticación.
+    - `auth_utils.py`: Utilidades de autenticación.
+    - `routes.py`: Endpoints de autenticación y OAuth2.
     - `redis_client.py`: Configuración del cliente Redis.
-  - `/mongodb`: Gestión de licitaciones y documentos.
+  - `/workspaces`: Lógica de gestión de workspaces.
+    - `models.py`: Modelos SQLAlchemy para workspaces y miembros.
+    - `schemas.py`: Esquemas Pydantic para workspaces.
+    - `routes.py`: Endpoints CRUD para workspaces y miembros.
+  - `/tenders`: Gestión de licitaciones y documentos.
     - `schemas.py`: Esquemas Pydantic para NoSQL.
     - `tenders_utils.py`: Operaciones CRUD y conexión.
   - `/database`: Configuración de persistencia e inicialización.
     - `/postgres-init`: Scripts SQL para Docker.
-  - `/tests`: Pruebas automatizadas (test_auth.py, test_workspaces.py).
-- `docker-compose.yml`: Orquestación de servicios locales (PostgreSQL, Redis).
+  - `/tests`: Pruebas automatizadas (test_auth.py, test_workspaces.py, test_tenders.py).
+- `docker-compose.yml`: Orquestación de servicios locales (PostgreSQL, Redis, MongoDB).
 
 ## Estado del Proyecto
 El módulo de autenticación y seguridad es completamente funcional y ha sido expandido con capacidades de nivel empresarial:
