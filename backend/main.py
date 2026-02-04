@@ -8,16 +8,24 @@ from datetime import timedelta
 from typing import AsyncGenerator, List, Any, Annotated
 import os
 import secrets
+import uuid
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Cookie
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Cookie, APIRouter
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, or_
+from sqlalchemy.orm import selectinload
 
-from backend.auth.models import Base, User
-from backend.auth.schemas import UserCreate, UserResponse, Token, UserLogin, OAuthUserInfo
+from backend.auth.models import Base, User, Workspace, WorkspaceMember, WorkspaceRole
+from backend.auth.schemas import (
+    UserCreate, UserResponse, Token, UserLogin, OAuthUserInfo,
+    WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate,
+    WorkspaceMemberAdd, WorkspaceMemberUpdate, WorkspaceMemberResponse,
+    WorkspaceWithTendersResponse, TenderSummaryResponse
+)
+from backend.mongodb.tenders_utils import get_tenders_by_workspace
 from backend.auth.auth_utils import (
     get_password_hash,
     authenticate_user,
@@ -38,8 +46,10 @@ from backend.auth.oauth_config import OAuthConfig
 from backend.auth.oauth_utils import OAuthProvider, get_oauth_user
 from backend.auth.database import engine, get_db
 from backend.auth.redis_client import get_redis
-from backend.auth.audit_utils import log_auth_event, create_audit_log
-from backend.auth.models import AuditAction, AuditCategory
+from backend.auth.audit_utils import log_auth_event, create_audit_log, log_tender_event
+from backend.auth.models import AuditAction, AuditCategory, WorkspaceRole, WorkspaceMember
+from backend.mongodb.routes import router as tenders_router
+from backend.mongodb.tenders_utils import MongoDB
 
 # Store for OAuth state tokens (in production, use Redis or database)
 oauth_states = {}
@@ -63,23 +73,32 @@ async def lifespan(app: FastAPI):
     """
     Lifespan context manager for application startup and shutdown.
     """
-    # Startup: Create tables
+    # Startup: PostgreSQL
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
+    # Startup: MongoDB
+    mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+    mongodb_db = os.getenv("MONGODB_DB_NAME", "lizicular_db")
+    await MongoDB.connect_to_database(mongodb_url, mongodb_db)
+    
     yield
     
-    # Shutdown: Dispose engine
+    # Shutdown: Dispose engines
     await engine.dispose()
+    await MongoDB.close_database_connection()
 
 
 # Initialize FastAPI application
 app = FastAPI(
-    title="Authentication API with OAuth2",
-    description="Centralized authentication system with JWT and OAuth2 (Google, Facebook, GitHub, Microsoft)",
-    version="2.0.0",
+    title="Lizicular API",
+    description="Centralized authentication and Tender Management system",
+    version="2.1.0",
     lifespan=lifespan
 )
+
+# Include routers
+app.include_router(tenders_router)
 
 
 async def get_or_create_oauth_user(
@@ -204,7 +223,7 @@ async def signup(
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
-        
+
         # Log successful signup
         await log_auth_event(
             db=db,
@@ -216,14 +235,13 @@ async def signup(
             details="Local account created"
         )
         
+        return new_user
     except IntegrityError:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Error creating user. Email may already exist."
         )
-    
-    return UserResponse.model_validate(new_user)
 
 
 @app.post(
@@ -637,7 +655,17 @@ async def read_users_me(
         ip_address=request.client.host,
         user_agent=request.headers.get("user-agent")
     )
-    return UserResponse.model_validate(current_user)
+    user_data_dict = {
+        "id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "is_active": current_user.is_active,
+        "oauth_provider": current_user.oauth_provider,
+        "profile_picture": current_user.profile_picture,
+        "created_at": current_user.created_at,
+        "updated_at": current_user.updated_at,
+    }
+    return UserResponse.model_validate(user_data_dict)
 
 
 @app.get(
@@ -676,6 +704,352 @@ async def root():
         "version": "2.0.0",
         "oauth_enabled": len(OAuthConfig.get_enabled_providers()) > 0
     }
+
+# ============================================================================
+# WORKSPACES ENDPOINTS
+# ============================================================================
+from backend.auth.schemas import WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate, WorkspaceMemberAdd, WorkspaceMemberUpdate, WorkspaceMemberResponse
+from backend.auth.models import Workspace
+from sqlalchemy.orm import selectinload
+
+workspaces_router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
+
+@workspaces_router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+async def create_workspace(
+    workspace_data: WorkspaceCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    new_workspace = Workspace(
+        name=workspace_data.name,
+        description=workspace_data.description,
+        owner_id=current_user.id
+    )
+    
+    # The creator automatically becomes the owner
+    member = WorkspaceMember(
+        workspace=new_workspace,
+        user=current_user,
+        role=WorkspaceRole.OWNER
+    )
+    
+    db.add(new_workspace)
+    db.add(member)
+    await db.commit()
+    await db.refresh(new_workspace)
+    
+    await create_audit_log(
+        db,
+        category=AuditCategory.WORKSPACE,
+        action=AuditAction.WORKSPACE_CREATE,
+        user_id=current_user.id,
+        workspace_id=new_workspace.id,
+        payload={"name": new_workspace.name},
+        ip_address=request.client.host
+    )
+    
+    return new_workspace
+
+@workspaces_router.get("/", response_model=List[WorkspaceResponse])
+async def get_user_workspaces(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    result = await db.execute(
+        select(Workspace).join(WorkspaceMember).where(
+            WorkspaceMember.user_id == current_user.id
+        )
+    )
+    return result.scalars().all()
+
+@workspaces_router.get("/detailed/", response_model=List[WorkspaceWithTendersResponse])
+async def get_user_workspaces_with_tenders(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get a detailed list of workspaces for the current user, including their role
+    and a summary of tenders in each workspace.
+    """
+    # 1. Get all workspace memberships for the user
+    result = await db.execute(
+        select(WorkspaceMember)
+        .where(WorkspaceMember.user_id == current_user.id)
+        .options(selectinload(WorkspaceMember.workspace))
+    )
+    memberships = result.scalars().all()
+    
+    response_list = []
+    
+    # 2. For each membership, fetch tenders from MongoDB
+    for member in memberships:
+        workspace = member.workspace
+        if not workspace:
+            continue
+            
+        tenders_from_mongo = await get_tenders_by_workspace(MongoDB.database, str(workspace.id))
+        
+        # 3. Create the nested response object
+        workspace_details = WorkspaceWithTendersResponse(
+            id=workspace.id,
+            name=workspace.name,
+            description=workspace.description,
+            owner_id=workspace.owner_id,
+            is_active=workspace.is_active,
+            created_at=workspace.created_at,
+            updated_at=workspace.updated_at,
+            user_role=member.role,
+            tenders=[
+                TenderSummaryResponse(
+                    id=str(t.id),
+                    name=t.name,
+                    created_at=t.created_at
+                ) for t in tenders_from_mongo
+            ]
+        )
+        response_list.append(workspace_details)
+        
+    return response_list
+
+@workspaces_router.get("/{workspace_id}", response_model=WorkspaceResponse)
+async def get_workspace(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    result = await db.execute(
+        select(Workspace).join(WorkspaceMember).where(
+            Workspace.id == workspace_id,
+            WorkspaceMember.user_id == current_user.id
+        )
+    )
+    workspace = result.scalar_one_or_none()
+    
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found or access denied")
+        
+    return workspace
+
+@workspaces_router.put("/{workspace_id}", response_model=WorkspaceResponse)
+async def update_workspace(
+    workspace_id: str,
+    workspace_data: WorkspaceUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    result = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id)
+    )
+    workspace = result.scalar_one_or_none()
+
+    if not workspace or workspace.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not an owner of the workspace")
+
+    update_data = workspace_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(workspace, key, value)
+    
+    await db.commit()
+    await db.refresh(workspace)
+    
+    await create_audit_log(
+        db,
+        category=AuditCategory.WORKSPACE,
+        action=AuditAction.WORKSPACE_UPDATE,
+        user_id=current_user.id,
+        workspace_id=workspace.id,
+        payload=update_data,
+        ip_address=request.client.host
+    )
+    
+    return workspace
+
+@workspaces_router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workspace(
+    workspace_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    result = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id)
+    )
+    workspace = result.scalar_one_or_none()
+
+    if not workspace or workspace.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not an owner of the workspace")
+
+    await db.delete(workspace)
+    await db.commit()
+    
+    await create_audit_log(
+        db,
+        category=AuditCategory.WORKSPACE,
+        action=AuditAction.WORKSPACE_DELETE,
+        user_id=current_user.id,
+        workspace_id=workspace.id,
+        ip_address=request.client.host
+    )
+    
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Workspace Members Endpoints ---
+
+@workspaces_router.post("/{workspace_id}/members", response_model=WorkspaceMemberResponse, status_code=status.HTTP_201_CREATED)
+async def add_workspace_member(
+    workspace_id: str,
+    member_data: WorkspaceMemberAdd,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    # Check if current user is owner or admin
+    res = await db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == current_user.id))
+    current_member = res.scalar_one_or_none()
+    if not current_member or current_member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Only workspace owners or admins can add members")
+
+    # Find user to add
+    user_to_add = await get_user_by_email(db, member_data.user_email)
+    if not user_to_add:
+        raise HTTPException(status_code=404, detail=f"User with email {member_data.user_email} not found")
+        
+    # Check if user is already a member
+    res = await db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == user_to_add.id))
+    if res.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="User is already a member of this workspace")
+
+    new_member = WorkspaceMember(workspace_id=workspace_id, user_id=user_to_add.id, role=member_data.role.upper())
+    db.add(new_member)
+    await db.commit()
+    
+    await create_audit_log(
+        db,
+        category=AuditCategory.WORKSPACE,
+        action=AuditAction.MEMBER_ADD,
+        user_id=current_user.id,
+        workspace_id=workspace_id,
+        payload={"added_user_email": user_to_add.email, "role": new_member.role},
+        ip_address=request.client.host
+    )
+    
+    return WorkspaceMemberResponse(
+        user_id=user_to_add.id,
+        email=user_to_add.email,
+        full_name=user_to_add.full_name,
+        role=new_member.role
+    )
+
+@workspaces_router.get("/{workspace_id}/members", response_model=List[WorkspaceMemberResponse])
+async def list_workspace_members(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    # Check if current user is a member
+    res = await db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == current_user.id))
+    if not res.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="You are not a member of this workspace")
+        
+    # Get all members
+    result = await db.execute(
+        select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id).options(selectinload(WorkspaceMember.user))
+    )
+    members = result.scalars().all()
+    
+    return [
+        WorkspaceMemberResponse(
+            user_id=member.user.id,
+            email=member.user.email,
+            full_name=member.user.full_name,
+            role=member.role
+        ) for member in members
+    ]
+
+@workspaces_router.put("/{workspace_id}/members/{user_id}", response_model=WorkspaceMemberResponse)
+async def update_workspace_member(
+    workspace_id: str,
+    user_id: str,
+    member_data: WorkspaceMemberUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    # Check if current user is owner or admin
+    res = await db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == current_user.id))
+    current_member = res.scalar_one_or_none()
+    if not current_member or current_member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Only workspace owners or admins can update members")
+
+    # Get member to update
+    res = await db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == user_id).options(selectinload(WorkspaceMember.user)))
+    member_to_update = res.scalar_one_or_none()
+    if not member_to_update:
+        raise HTTPException(status_code=404, detail="Member not found in this workspace")
+        
+    member_to_update.role = member_data.role.upper()
+    await db.commit()
+    
+    await create_audit_log(
+        db,
+        category=AuditCategory.WORKSPACE,
+        action=AuditAction.ROLE_CHANGE,
+        user_id=current_user.id,
+        workspace_id=workspace_id,
+        payload={"updated_user_id": str(member_to_update.user_id), "new_role": member_to_update.role},
+        ip_address=request.client.host
+    )
+    
+    return WorkspaceMemberResponse(
+        user_id=member_to_update.user.id,
+        email=member_to_update.user.email,
+        full_name=member_to_update.user.full_name,
+        role=member_to_update.role
+    )
+
+@workspaces_router.delete("/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_workspace_member(
+    workspace_id: str,
+    user_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    # Check if current user is owner or admin
+    res = await db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == current_user.id))
+    current_member = res.scalar_one_or_none()
+    if not current_member or current_member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Only workspace owners or admins can remove members")
+        
+    # Get member to remove
+    res = await db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == user_id))
+    member_to_remove = res.scalar_one_or_none()
+    if not member_to_remove:
+        raise HTTPException(status_code=404, detail="Member not found in this workspace")
+        
+    # Prevent owner from being removed
+    if member_to_remove.role == WorkspaceRole.OWNER:
+        raise HTTPException(status_code=400, detail="Workspace owner cannot be removed")
+
+    await db.delete(member_to_remove)
+    await db.commit()
+    
+    await create_audit_log(
+        db,
+        category=AuditCategory.WORKSPACE,
+        action=AuditAction.MEMBER_REMOVE,
+        user_id=current_user.id,
+        workspace_id=workspace_id,
+        payload={"removed_user_id": str(user_id)},
+        ip_address=request.client.host
+    )
+    
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+app.include_router(workspaces_router)
 
 
 if __name__ == "__main__":

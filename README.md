@@ -40,10 +40,11 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 
 ## 📂 Estructura del Proyecto
 
-- `backend/main.py`: Punto de entrada de la aplicación.
+- `backend/main.py`: Punto de entrada de la aplicación (incluye router para Workspaces).
 - `backend/auth/`: Lógica de autenticación, RBAC y auditoría.
+- `backend/mongodb/`: Gestión de licitaciones y documentos (NoSQL).
 - `backend/database/`: Scripts de inicialización y configuración de DB.
-- `backend/tests/`: Pruebas automatizadas.
+- `backend/tests/`: Pruebas automatizadas (test_auth.py, test_workspaces.py).
 
 ## 🔌 API Endpoints (Módulo de Autenticación)
 
@@ -62,6 +63,31 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 ### **Usuarios**
 - `GET /users/me`: Obtiene la información del perfil del usuario autenticado (Protegido con JWT).
 
+### **Workspaces (Colaboración)**
+- `POST /workspaces/`: Crea un nuevo workspace (el creador es el OWNER).
+- `GET /workspaces/`: Lista los workspaces a los que pertenece el usuario.
+- `GET /workspaces/detailed/`: Lista los workspaces con un resumen de sus licitaciones y el rol del usuario.
+- `GET /workspaces/{workspace_id}`: Obtiene detalles de un workspace específico.
+- `PUT /workspaces/{workspace_id}`: Actualiza un workspace (solo OWNER).
+- `DELETE /workspaces/{workspace_id}`: Elimina un workspace (solo OWNER).
+
+#### **Miembros del Workspace**
+- `POST /workspaces/{workspace_id}/members`: Añade un usuario al workspace con un rol específico (solo OWNER/ADMIN).
+- `GET /workspaces/{workspace_id}/members`: Lista todos los miembros del workspace.
+- `PUT /workspaces/{workspace_id}/members/{user_id}`: Actualiza el rol de un miembro (solo OWNER/ADMIN).
+- `DELETE /workspaces/{workspace_id}/members/{user_id}`: Elimina un miembro del workspace (solo OWNER/ADMIN).
+
+### **Licitaciones (Tenders)**
+- `POST /tenders`: Crea una nueva licitación (Requiere rol EDITOR).
+- `GET /tenders/workspace/{workspace_id}`: Lista licitaciones de un workspace.
+- `GET /tenders/{tender_id}`: Obtiene el detalle completo de una licitación.
+- `PATCH /tenders/{tender_id}`: Actualiza datos de una licitación (Requiere rol EDITOR).
+- `DELETE /tenders/{tender_id}`: Elimina una licitación (Requiere rol ADMIN).
+
+### **Análisis de Licitaciones**
+- `POST /tenders/{tender_id}/analysis`: Añade resultados de análisis a una licitación (Requiere rol EDITOR).
+- `DELETE /tenders/{tender_id}/analysis/{result_id}`: Elimina un análisis específico.
+
 ### **Utilidad**
 - `GET /`: Health check del sistema.
 
@@ -74,7 +100,7 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 3.  **Refactorización de Tipos:** Código optimizado para Python 3.10+ usando el estándar `Tipo | None` y Pydantic v2.
 4.  **Infraestructura de Pruebas:** Creación de una suite de tests automáticos con `pytest` y `httpx`, además de colecciones en `Postman` para validación manual del flujo de usuarios.
 5.  **Corrección de Dependencias:** Ajuste de versiones de seguridad (`bcrypt`) para asegurar compatibilidad en Windows y entornos asíncronos.
-6.  **Gestión de Workspaces:** Implementación de modelos para la organización de equipos y licitaciones con soporte para roles (RBAC).
+6.  **Gestión de Workspaces:** Implementación completa de la creación, gestión y control de acceso (RBAC) para organizar equipos y licitaciones.
 7.  **Sistema de Auditoría de Grado Empresarial:** Motor de logs universal con soporte para categorías (Auth, Workspace, Tender, etc.) y utilidades de consulta avanzada, detección de amenazas y exportación para cumplimiento.
 
 ---

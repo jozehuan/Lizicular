@@ -2,7 +2,7 @@
 Authentication utilities for password hashing and JWT token management.
 """
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
@@ -62,7 +62,7 @@ def create_token(data: dict, expires_delta: timedelta | None = None) -> str:
     Create a JWT token (Access or Refresh) with a unique JTI.
     """
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     
     # Añadir JTI único para identificación y lista negra
     to_encode.update({

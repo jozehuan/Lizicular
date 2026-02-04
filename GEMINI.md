@@ -14,20 +14,23 @@ Esta aplicación es un proyecto para el desarrollo de una aplicación web llamad
 
 ## Estructura Actual
 - `/backend`
-  - `main.py`: Punto de entrada de la API.
-  - `/auth`: Lógica de autenticación, modelos (RBAC) y auditoría.
+  - `main.py`: Punto de entrada de la API (incluye router para Workspaces).
+  - `/auth`: Lógica de autenticación, modelos (RBAC), auditoría y esquemas (incluye esquemas de Workspaces).
     - `redis_client.py`: Configuración del cliente Redis.
+  - `/mongodb`: Gestión de licitaciones y documentos.
+    - `schemas.py`: Esquemas Pydantic para NoSQL.
+    - `tenders_utils.py`: Operaciones CRUD y conexión.
   - `/database`: Configuración de persistencia e inicialización.
     - `/postgres-init`: Scripts SQL para Docker.
-  - `/tests`: Pruebas automatizadas (test_auth.py).
+  - `/tests`: Pruebas automatizadas (test_auth.py, test_workspaces.py).
 - `docker-compose.yml`: Orquestación de servicios locales (PostgreSQL, Redis).
 
 ## Estado del Proyecto
 El módulo de autenticación y seguridad es completamente funcional y ha sido expandido con capacidades de nivel empresarial:
 1. **Seguridad Avanzada:** Optimizado con estándares modernos de Python 3.10+ y Pydantic v2.
 2. **Infraestructura de Datos:** PostgreSQL para identidad y auditoría; MongoDB planificado para licitaciones y documentos.
-3. **Control de Acceso:** Implementación de Workspaces para organizar la colaboración en licitaciones.
-4. **Trazabilidad:** Sistema de auditoría universal listo para cumplimiento (compliance) y monitoreo de seguridad.
+3. **Control de Acceso:** Implementación completa de Workspaces para organizar la colaboración en licitaciones, incluyendo gestión de miembros y roles (OWNER, ADMIN, EDITOR, VIEWER).
+4. **Trazabilidad:** Sistema de auditoría universal listo para cumplimiento (compliance) y monitoreo de seguridad, ahora extendido a acciones de Workspaces.
 5. **Estrategia de Seguridad de Tokens:** Implementación de Access Tokens efímeros (15m) y Refresh Tokens persistentes en cookies HttpOnly para protección contra XSS.
 6. **Invalidación de Tokens (Redis Blacklist):** Uso de Redis para invalidar inmediatamente tokens durante el logout o rotación, garantizando que un token robado no pueda ser reutilizado.
 7. **Preparación para el Chatbot:** La estructura de auditoría y workspaces está diseñada para integrarse con los flujos de automatización y el chatbot futuro.

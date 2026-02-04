@@ -4,7 +4,7 @@ Helpers para crear y consultar logs de auditoría.
 """
 from typing import Optional, Dict, Any, List
 from uuid import UUID
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
@@ -338,7 +338,7 @@ async def detect_suspicious_activity(
     """
     Detecta actividad sospechosa (intentos de login fallidos, etc.).
     """
-    threshold_time = datetime.now(timezone.utc) - timedelta(minutes=time_window_minutes)
+    threshold_time = datetime.utcnow() - timedelta(minutes=time_window_minutes)
     
     query = select(func.count(AuditLog.id)).where(
         AuditLog.category == AuditCategory.AUTH,
@@ -523,7 +523,7 @@ async def cleanup_old_logs(
     Returns:
         Número de logs eliminados
     """
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
+    cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
     
     result = await db.execute(
         select(func.count(AuditLog.id)).where(

@@ -304,7 +304,7 @@ class TenderCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000, description="Descripción opcional")
     
     # Mínimo 1 documento al crear
-    documents: List[TenderDocument] = Field(..., min_items=1, max_items=5)
+    documents: List[TenderDocument] = Field(..., min_length=1, max_length=5)
     
     created_by: str = Field(..., description="UUID del usuario creador")
 
@@ -315,7 +315,7 @@ class TenderUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     
     # Actualizar documentos (mantener límite de 5)
-    documents: Optional[List[TenderDocument]] = Field(None, min_items=1, max_items=5)
+    documents: Optional[List[TenderDocument]] = Field(None, min_length=1, max_length=5)
 
 
 class Tender(BaseModel):
@@ -334,7 +334,7 @@ class Tender(BaseModel):
     created_by: str = Field(..., description="UUID del usuario creador")
     
     # Documentos (1-5)
-    documents: List[TenderDocument] = Field(..., min_items=1, max_items=5)
+    documents: List[TenderDocument] = Field(..., min_length=1, max_length=5)
     
     # Resultados (opcional, se agregan bajo demanda)
     analysis_results: List[AnalysisResult] = Field(default_factory=list)

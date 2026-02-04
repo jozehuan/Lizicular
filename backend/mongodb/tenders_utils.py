@@ -9,12 +9,11 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 from fastapi import HTTPException, status
 
-from .mongodb_schemas import (
+from .schemas import (
     Tender, TenderCreate, TenderUpdate,
     TenderDocument, AnalysisResult,
     TenderResponse
 )
-
 
 # ============================================================================
 # DATABASE CONNECTION
@@ -23,8 +22,8 @@ from .mongodb_schemas import (
 class MongoDB:
     """MongoDB connection manager."""
     
-    client: AsyncIOMotorClient = None
-    database: AsyncIOMotorDatabase = None
+    client: Any = None
+    database: Any = None
     
     @classmethod
     async def connect_to_database(cls, mongodb_url: str, database_name: str):
@@ -73,7 +72,7 @@ class MongoDB:
 # ============================================================================
 
 async def create_tender(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_data: TenderCreate
 ) -> Tender:
     """
@@ -119,7 +118,7 @@ async def create_tender(
 
 
 async def get_tender_by_id(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str
 ) -> Optional[Tender]:
     """
@@ -146,7 +145,7 @@ async def get_tender_by_id(
 
 
 async def get_tenders_by_workspace(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     workspace_id: str,
     skip: int = 0,
     limit: int = 100,
@@ -180,7 +179,7 @@ async def get_tenders_by_workspace(
 
 
 async def update_tender(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str,
     update_data: TenderUpdate
 ) -> Optional[Tender]:
@@ -241,7 +240,7 @@ async def update_tender(
 
 
 async def delete_tender(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str
 ) -> bool:
     """
@@ -259,7 +258,7 @@ async def delete_tender(
 
 
 async def count_tenders_in_workspace(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     workspace_id: str
 ) -> int:
     """
@@ -281,7 +280,7 @@ async def count_tenders_in_workspace(
 # ============================================================================
 
 async def add_document_to_tender(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str,
     document: TenderDocument
 ) -> Optional[Tender]:
@@ -333,7 +332,7 @@ async def add_document_to_tender(
 
 
 async def remove_document_from_tender(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str,
     document_id: str
 ) -> Optional[Tender]:
@@ -389,7 +388,7 @@ async def remove_document_from_tender(
 # ============================================================================
 
 async def add_analysis_result_to_tender(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str,
     analysis_result: AnalysisResult
 ) -> Optional[Tender]:
@@ -427,7 +426,7 @@ async def add_analysis_result_to_tender(
 
 
 async def get_analysis_result_by_id(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str,
     result_id: str
 ) -> Optional[AnalysisResult]:
@@ -457,7 +456,7 @@ async def get_analysis_result_by_id(
 
 
 async def delete_analysis_result(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str,
     result_id: str
 ) -> Optional[Tender]:
@@ -493,7 +492,7 @@ async def delete_analysis_result(
 # ============================================================================
 
 async def search_tenders(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     workspace_id: str,
     search_query: str,
     skip: int = 0,
@@ -529,7 +528,7 @@ async def search_tenders(
 
 
 async def get_tenders_by_extraction_status(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     workspace_id: str,
     extraction_status: str
 ) -> List[Tender]:
@@ -562,7 +561,7 @@ async def get_tenders_by_extraction_status(
 # ============================================================================
 
 async def check_tender_exists(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     tender_id: str
 ) -> bool:
     """
@@ -580,7 +579,7 @@ async def check_tender_exists(
 
 
 async def get_tender_statistics(
-    db: AsyncIOMotorDatabase,
+    db: Any,
     workspace_id: str
 ) -> Dict[str, Any]:
     """
