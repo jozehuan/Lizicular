@@ -19,6 +19,8 @@ from backend.auth.database import engine
 from backend.tenders.routes import router as tenders_router
 from backend.workspaces.routes import router as workspaces_router
 from backend.auth.routes import router as auth_router, users_router
+from backend.automations.routes import router as automations_router
+from backend.automations.websocket.routes import router as ws_router
 from backend.tenders.tenders_utils import MongoDB
 
 @asynccontextmanager
@@ -55,6 +57,8 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(tenders_router)
 app.include_router(workspaces_router)
+app.include_router(automations_router)
+app.include_router(ws_router)
 
 
 @app.get(
