@@ -1,29 +1,6 @@
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from backend.main import app
-import redis.asyncio as redis
-import os
+from httpx import AsyncClient
 import uuid
-
-# URL base para los tests
-BASE_URL = "http://testserver"
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-@pytest_asyncio.fixture(autouse=True)
-async def clear_redis():
-    """Limpia la base de datos de Redis antes de cada test."""
-    client = redis.from_url(REDIS_URL, decode_responses=True)
-    await client.flushdb()
-    await client.aclose()
-    yield
-
-@pytest_asyncio.fixture
-async def client():
-    """Fixture que proporciona un cliente HTTP asíncrono configurado para la app."""
-    # Usamos ASGITransport para manejar cookies automáticamente en el cliente
-    async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as ac:
-        yield ac
 
 @pytest.mark.asyncio
 async def test_signup_success(client):

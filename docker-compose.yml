@@ -30,5 +30,20 @@ services:
       timeout: 5s
       retries: 5
 
+  mongodb:
+    image: mongo:6.0
+    container_name: lizicular_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
+  mongodb_data:

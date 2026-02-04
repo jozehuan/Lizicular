@@ -2,10 +2,10 @@
 Authentication utilities for password hashing and JWT token management.
 """
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -62,7 +62,7 @@ def create_token(data: dict, expires_delta: timedelta | None = None) -> str:
     Create a JWT token (Access or Refresh) with a unique JTI.
     """
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     
     # Añadir JTI único para identificación y lista negra
     to_encode.update({
@@ -217,3 +217,16 @@ async def get_current_active_user(
             detail="Inactive user"
         )
     return current_user
+
+
+def set_refresh_token_cookie(response: Response, refresh_token: str):
+    """Configura la cookie HttpOnly para el Refresh Token."""
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        expires=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        samesite="lax",
+        secure=False,  # Cambiar a True en producción con HTTPS
+    )

@@ -60,3 +60,4 @@ class OAuthUserInfo(BaseModel):
     profile_picture: str | None = Field(default=None)
     oauth_id: str
     oauth_provider: str
+
