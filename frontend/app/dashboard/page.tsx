@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react" // Import useEffect
 import { DashboardHeader } from "@/components/dashboard/header"
 import { DashboardFooter } from "@/components/dashboard/footer"
 import { ChatbotWidget } from "@/components/dashboard/chatbot-widget"
@@ -8,107 +8,144 @@ import { CreateSpaceForm } from "@/components/dashboard/create-space-form"
 import { SpacesList } from "@/components/dashboard/spaces-list"
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
+import { Plus, Loader2, AlertCircle } from "lucide-react" // Import Loader2 and AlertCircle
+import { useAuth } from "@/lib/auth-context" // Import useAuth
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+
+export interface Tender {
+  id: string
+  name: string // Changed from title to name to match backend
+  status?: string // Add status as optional
+  created_at: string // Changed from createdAt to created_at
+  // Add other fields from TenderSummaryResponse if needed
+}
 
 export interface Space {
   id: string
   name: string
-  createdAt: Date
-  collaborators: string[]
+  description: string
+  owner_id: string
+  is_active: boolean
+  created_at: string // Changed to string to match backend's datetime
+  updated_at: string // Changed to string to match backend's datetime
+  user_role: string // Add user_role
   tenders: Tender[]
 }
 
-export interface Tender {
-  id: string
-  title: string
-  status: "draft" | "in-progress" | "analyzed" | "completed"
-  files: { name: string; type: string }[]
-  createdAt: Date
-}
-
-const initialSpaces: Space[] = [
-  {
-    id: "1",
-    name: "Government Infrastructure Projects",
-    createdAt: new Date("2024-01-15"),
-    collaborators: ["alice@company.com", "bob@company.com"],
-    tenders: [
-      {
-        id: "t1",
-        title: "Highway Construction Tender 2024",
-        status: "analyzed",
-        files: [
-          { name: "Technical_Requirements.pdf", type: "pdf" },
-          { name: "Budget_Proposal.pdf", type: "pdf" },
-        ],
-        createdAt: new Date("2024-01-20"),
-      },
-      {
-        id: "t2",
-        title: "Bridge Renovation Project",
-        status: "in-progress",
-        files: [{ name: "Project_Scope.pdf", type: "pdf" }],
-        createdAt: new Date("2024-02-01"),
-      },
-    ],
-  },
-  {
-    id: "2",
-    name: "Healthcare Equipment Procurement",
-    createdAt: new Date("2024-02-10"),
-    collaborators: ["carol@medical.org"],
-    tenders: [
-      {
-        id: "t3",
-        title: "MRI Machine Acquisition",
-        status: "draft",
-        files: [],
-        createdAt: new Date("2024-02-15"),
-      },
-    ],
-  },
-  {
-    id: "3",
-    name: "IT Services & Software",
-    createdAt: new Date("2024-03-01"),
-    collaborators: [],
-    tenders: [
-      {
-        id: "t4",
-        title: "Cloud Migration Services",
-        status: "completed",
-        files: [
-          { name: "RFP_Document.pdf", type: "pdf" },
-          { name: "Vendor_Responses.pdf", type: "pdf" },
-          { name: "Evaluation_Matrix.pdf", type: "pdf" },
-        ],
-        createdAt: new Date("2024-03-05"),
-      },
-      {
-        id: "t5",
-        title: "Cybersecurity Assessment",
-        status: "in-progress",
-        files: [{ name: "Security_Requirements.pdf", type: "pdf" }],
-        createdAt: new Date("2024-03-10"),
-      },
-    ],
-  },
-]
-
 export default function DashboardPage() {
-  const [spaces, setSpaces] = useState<Space[]>(initialSpaces)
+  const { accessToken, isLoading: isAuthLoading } = useAuth()
+  const [spaces, setSpaces] = useState<Space[]>([])
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [isCreatingSpace, setIsCreatingSpace] = useState(false) // New state for creating space
+  const [createSpaceError, setCreateSpaceError] = useState<string | null>(null) // New state for create space error
 
-  const handleCreateSpace = (name: string, collaborators: string[]) => {
-    const newSpace: Space = {
-      id: Date.now().toString(),
-      name,
-      createdAt: new Date(),
-      collaborators,
-      tenders: [],
+  const fetchSpaces = useCallback(async () => {
+    if (!accessToken || isAuthLoading) {
+      setIsLoading(true);
+      return;
     }
-    setSpaces([newSpace, ...spaces])
-    setShowCreateForm(false)
+    
+    setIsLoading(true)
+    setError(null)
+    try {
+      const response = await fetch(`${BACKEND_URL}/workspaces/detailed/`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || "Failed to fetch spaces")
+      }
+
+      const data: Space[] = await response.json()
+      setSpaces(data)
+    } catch (err: any) {
+      setError(err.message || "An unknown error occurred while fetching spaces")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [accessToken, isAuthLoading])
+
+  useEffect(() => {
+    fetchSpaces()
+  }, [fetchSpaces])
+
+  const handleCreateSpace = async (name: string, description: string, collaborators: string[]) => { // Added description
+    setIsCreatingSpace(true)
+    setCreateSpaceError(null)
+    try {
+      // 1. Create the workspace
+      const createResponse = await fetch(`${BACKEND_URL}/workspaces/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ name, description }), // Include description
+      })
+
+      if (!createResponse.ok) {
+        const errorData = await createResponse.json()
+        throw new Error(errorData.detail || "Failed to create space")
+      }
+
+      const newWorkspace: Space = await createResponse.json()
+
+      // 2. Add collaborators (if any)
+      for (const email of collaborators) {
+        const addMemberResponse = await fetch(`${BACKEND_URL}/workspaces/${newWorkspace.id}/members`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ user_email: email, role: "VIEWER" }), // Default role VIEWER
+        })
+
+        if (!addMemberResponse.ok) {
+          const errorData = await addMemberResponse.json()
+          console.error(`Failed to add collaborator ${email}:`, errorData.detail)
+          // Decide how to handle this error: warn user, rollback, etc.
+          // For now, we'll continue trying to add other collaborators and report a general error if any fail.
+          setCreateSpaceError(prev => (prev ? `${prev}; Failed to add ${email}` : `Failed to add collaborator ${email}`))
+        }
+      }
+
+      // Refresh the list of spaces to show the new one and its members
+      await fetchSpaces()
+      setShowCreateForm(false)
+    } catch (err: any) {
+      setCreateSpaceError(err.message || "An unknown error occurred while creating space")
+    } finally {
+      setIsCreatingSpace(false)
+    }
+  }
+
+  if (isAuthLoading || isLoading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-background p-6">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </main>
+    )
+  }
+
+  if (error) {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center bg-background p-6">
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 text-destructive text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              {error}
+        </div>
+        <Button onClick={() => window.location.reload()} className="mt-4">
+            Retry
+        </Button>
+      </main>
+    )
   }
 
   return (
@@ -136,7 +173,9 @@ export default function DashboardPage() {
         {showCreateForm && (
           <CreateSpaceForm
             onSubmit={handleCreateSpace}
-            onCancel={() => setShowCreateForm(false)}
+            onCancel={() => { setShowCreateForm(false); setCreateSpaceError(null); }} // Clear error on cancel
+            isSubmitting={isCreatingSpace}
+            error={createSpaceError}
           />
         )}
 

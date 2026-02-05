@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { generateAccessToken, generateRefreshToken, setRefreshTokenCookie } from "@/lib/auth"
 
-// Mock user storage - in production, use a real database with bcrypt password hashing
-const existingEmails = ["demo@lizicular.com", "admin@lizicular.com"]
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,33 +20,79 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if email already exists - in production, check database
-    if (existingEmails.includes(email.toLowerCase())) {
+    // 1. Call backend /auth/signup
+    const signupResponse = await fetch(`${BACKEND_URL}/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, full_name: name }),
+    })
+
+    if (!signupResponse.ok) {
+      const errorData = await signupResponse.json()
+      // Specific backend errors
+      if (signupResponse.status === 400 && errorData.detail === "Email already registered") {
+        return NextResponse.json(
+          { error: "Email already registered" },
+          { status: 409 } // Conflict
+        )
+      }
       return NextResponse.json(
-        { error: "Email already registered" },
-        { status: 409 }
+        { error: errorData.detail || "Signup failed" },
+        { status: signupResponse.status }
       )
     }
 
-    // Create new user - in production, hash password with bcrypt and save to database
-    const newUser = {
-      id: Date.now().toString(),
-      email: email.toLowerCase(),
-      name,
+    // 2. If signup successful, call backend /auth/login/json to get tokens
+    const loginResponse = await fetch(`${BACKEND_URL}/auth/login/json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    })
+
+    if (!loginResponse.ok) {
+      const errorData = await loginResponse.json()
+      return NextResponse.json(
+        { error: errorData.detail || "Login failed after signup" },
+        { status: loginResponse.status }
+      )
     }
 
-    // Generate tokens
-    const accessToken = await generateAccessToken(newUser)
-    const refreshToken = await generateRefreshToken(newUser)
+    const loginData = await loginResponse.json()
+    const accessToken = loginData.access_token // Backend sends access_token
 
-    // Set refresh token in HTTP-only cookie
-    await setRefreshTokenCookie(refreshToken)
-
-    return NextResponse.json({
-      accessToken,
-      user: newUser,
+    // 3. Use access_token to get user details from /users/me
+    const userMeResponse = await fetch(`${BACKEND_URL}/users/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
     })
-  } catch {
+
+    if (!userMeResponse.ok) {
+      const errorData = await userMeResponse.json()
+      return NextResponse.json(
+        { error: errorData.detail || "Failed to fetch user details after signup" },
+        { status: userMeResponse.status }
+      )
+    }
+    const userMeData = await userMeResponse.json()
+
+    // Create a new NextResponse to allow setting cookies
+    const response = NextResponse.json({
+      accessToken, // frontend expects camelCase
+      user: {
+        id: userMeData.id,
+        email: userMeData.email,
+        name: userMeData.full_name, // Map full_name to name
+      },
+    })
+
+    // Propagate all Set-Cookie headers from the backend's login response
+    const setCookieHeaders = loginResponse.headers.getSetCookie();
+    for (const cookieHeader of setCookieHeaders) {
+      response.headers.append('Set-Cookie', cookieHeader);
+    }
+
+    return response
+  } catch (error) {
+    console.error("Signup API error:", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

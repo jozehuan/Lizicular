@@ -5,9 +5,9 @@ CRUD operations for tenders, documents, and analysis results.
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
-from bson import ObjectId
+from bson import ObjectId, Binary # Import Binary
 from pymongo.errors import DuplicateKeyError
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, UploadFile # Import UploadFile
 
 from .schemas import (
     Tender, TenderCreate, TenderUpdate,
@@ -73,7 +73,9 @@ class MongoDB:
 
 async def create_tender(
     db: Any,
-    tender_data: TenderCreate
+    tender_data: TenderCreate,
+    files: List[UploadFile],
+    created_by: str # Add created_by parameter
 ) -> Tender:
     """
     Crea una nueva licitación.
@@ -81,6 +83,8 @@ async def create_tender(
     Args:
         db: Base de datos MongoDB
         tender_data: Datos de la licitación
+        files: Lista de archivos a subir
+        created_by: ID del usuario creador
         
     Returns:
         Licitación creada
@@ -88,25 +92,45 @@ async def create_tender(
     Raises:
         HTTPException 400: Si el nombre ya existe en el workspace
     """
-    # Crear el objeto completo
-    tender_dict = {
-        "workspace_id": tender_data.workspace_id,
-        "name": tender_data.name,
-        "description": tender_data.description,
+    # Create the full tender dictionary
+    tender_dict = tender_data.model_dump(by_alias=True, exclude_unset=True) # Start with data from TenderCreate
+    tender_dict.update({
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
-        "created_by": tender_data.created_by,
-        "documents": [doc.model_dump() for doc in tender_data.documents],
+        "created_by": created_by, # Add created_by here
         "analysis_results": [],
         "search_text": f"{tender_data.name} {tender_data.description or ''}".lower()
-    }
+    })
+    
+    uploaded_files_info = []
+    for file in files:
+        file_content = await file.read()
+        file_document = {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size": len(file_content),
+            "upload_date": datetime.utcnow(),
+            "data": Binary(file_content) # Store file content as binary
+        }
+        # Insert file into a separate 'tender_files' collection
+        file_result = await db.tender_files.insert_one(file_document)
+        
+        uploaded_files_info.append(TenderDocument(
+            id=str(file_result.inserted_id),
+            filename=file.filename,
+            content_type=file.content_type,
+            size=len(file_content),
+            extraction_status="pending" # Default status
+        ).model_dump())
+        
+    tender_dict["documents"] = uploaded_files_info
     
     try:
         result = await db.tenders.insert_one(tender_dict)
         
         # Obtener el documento creado
         created_tender = await db.tenders.find_one({"_id": result.inserted_id})
-        created_tender["_id"] = str(created_tender["_id"])
+        created_tender["id"] = str(created_tender["_id"]) # Map _id to id for Pydantic model
         
         return Tender(**created_tender)
         
@@ -135,7 +159,7 @@ async def get_tender_by_id(
         tender = await db.tenders.find_one({"_id": ObjectId(tender_id)})
         
         if tender:
-            tender["_id"] = str(tender["_id"])
+            tender["id"] = str(tender["_id"])
             return Tender(**tender)
         
         return None
@@ -172,7 +196,7 @@ async def get_tenders_by_workspace(
     
     tenders = []
     async for tender in cursor:
-        tender["_id"] = str(tender["_id"])
+        tender["id"] = str(tender["_id"]) # Map _id to id for Pydantic model
         tenders.append(Tender(**tender))
     
     return tenders
@@ -224,7 +248,7 @@ async def update_tender(
         )
         
         if result:
-            result["_id"] = str(result["_id"])
+            result["id"] = str(result["_id"])
             return Tender(**result)
         
         raise HTTPException(
@@ -325,7 +349,7 @@ async def add_document_to_tender(
     )
     
     if result:
-        result["_id"] = str(result["_id"])
+        result["id"] = str(result["_id"])
         return Tender(**result)
     
     return None
@@ -377,7 +401,7 @@ async def remove_document_from_tender(
     )
     
     if result:
-        result["_id"] = str(result["_id"])
+        result["id"] = str(result["_id"])
         return Tender(**result)
     
     return None
@@ -416,7 +440,7 @@ async def add_analysis_result_to_tender(
     )
     
     if result:
-        result["_id"] = str(result["_id"])
+        result["id"] = str(result["_id"])
         return Tender(**result)
     
     raise HTTPException(
@@ -481,7 +505,7 @@ async def delete_analysis_result(
     )
     
     if result:
-        result["_id"] = str(result["_id"])
+        result["id"] = str(result["_id"])
         return Tender(**result)
     
     return None
@@ -521,7 +545,7 @@ async def search_tenders(
     
     tenders = []
     async for tender in cursor:
-        tender["_id"] = str(tender["_id"])
+        tender["id"] = str(tender["_id"])
         tenders.append(Tender(**tender))
     
     return tenders
@@ -550,7 +574,7 @@ async def get_tenders_by_extraction_status(
     
     tenders = []
     async for tender in cursor:
-        tender["_id"] = str(tender["_id"])
+        tender["id"] = str(tender["_id"])
         tenders.append(Tender(**tender))
     
     return tenders

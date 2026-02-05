@@ -1,9 +1,9 @@
 from __future__ import annotations
-from typing import List, Any
-import uuid
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from typing import List, Any
+import uuid
 
 from backend.auth.database import get_db
 from backend.auth.auth_utils import get_current_active_user
@@ -39,7 +39,7 @@ async def check_workspace_permission(
     
     result = await db.execute(
         select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.workspace_id == uuid.UUID(workspace_id), # Ensure UUID type match
             WorkspaceMember.user_id == user_id
         )
     )
@@ -57,41 +57,52 @@ async def check_workspace_permission(
 
 @router.post(
     "/",
-    response_model=Tender,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new tender"
 )
 async def api_create_tender(
-    tender_data: TenderCreate,
-    request: Request,
+    request: Request, # Moved to the beginning
+    name: str = Form(...),
+    workspace_id: str = Form(...),
+    description: str | None = Form(None),
+    files: List[UploadFile] = File(default_factory=list), # Accept list of files
     db: AsyncSession = Depends(get_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """Crea una licitación si el usuario es EDITOR o superior en el workspace."""
-    if not await check_workspace_permission(tender_data.workspace_id, current_user.id, db):
+    """Crea una licitación si el usuario es EDITOR o superior en el workspace y permite cargar documentos."""
+    if not await check_workspace_permission(workspace_id, current_user.id, db):
         await create_audit_log(
             db=db,
             category=AuditCategory.TENDER,
             action=AuditAction.TENDER_CREATE,
             user_id=current_user.id,
-            workspace_id=uuid.UUID(tender_data.workspace_id) if isinstance(tender_data.workspace_id, str) else tender_data.workspace_id,
+            workspace_id=uuid.UUID(workspace_id),
             success=False,
             error_message="Permission denied",
             ip_address=request.client.host
         )
         raise HTTPException(status_code=403, detail="Permission denied in this workspace")
     
-    new_tender = await create_tender(MongoDB.database, tender_data)
+    # Create TenderCreate object from form data
+    tender_create_data = TenderCreate(
+        name=name,
+        description=description,
+        workspace_id=workspace_id,
+        created_by=str(current_user.id) # Add created_by from current user
+    )
+    
+    new_tender = await create_tender(MongoDB.database, tender_create_data, files, str(current_user.id)) # Pass files and created_by to create_tender
     
     # Log audit
     await log_tender_event(
         db=db,
         action=AuditAction.TENDER_CREATE,
         tender_id=str(new_tender.id),
-        workspace_id=uuid.UUID(tender_data.workspace_id) if isinstance(tender_data.workspace_id, str) else tender_data.workspace_id,
+        workspace_id=uuid.UUID(workspace_id),
         user_id=current_user.id,
         request=request,
-        name=new_tender.name
+        name=new_tender.name,
+        payload={"files_count": len(files)}
     )
     
     return new_tender

@@ -1,21 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { generateAccessToken, generateRefreshToken, setRefreshTokenCookie } from "@/lib/auth"
 
-// Mock user database - in production, use a real database
-const mockUsers = [
-  {
-    id: "1",
-    email: "demo@lizicular.com",
-    password: "demo123",
-    name: "Demo User",
-  },
-  {
-    id: "2",
-    email: "admin@lizicular.com",
-    password: "admin123",
-    name: "Admin User",
-  },
-]
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,36 +13,64 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Find user - in production, use database lookup with hashed password comparison
-    const user = mockUsers.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-    )
+    // 1. Call backend /auth/login/json
+    const loginResponse = await fetch(`${BACKEND_URL}/auth/login/json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    })
 
-    if (!user) {
+    if (!loginResponse.ok) {
+      const errorData = await loginResponse.json()
+      // Specific backend errors
+      if (loginResponse.status === 401) {
+        return NextResponse.json(
+          { error: "Invalid email or password" },
+          { status: 401 }
+        )
+      }
       return NextResponse.json(
-        { error: "Invalid email or password" },
-        { status: 401 }
+        { error: errorData.detail || "Login failed" },
+        { status: loginResponse.status }
       )
     }
 
-    const userPayload = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
+    const loginData = await loginResponse.json()
+    const accessToken = loginData.access_token // Backend sends access_token
+
+    // 2. Use access_token to get user details from /users/me
+    const userMeResponse = await fetch(`${BACKEND_URL}/users/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+
+    if (!userMeResponse.ok) {
+      const errorData = await userMeResponse.json()
+      return NextResponse.json(
+        { error: errorData.detail || "Failed to fetch user details after login" },
+        { status: userMeResponse.status }
+      )
+    }
+    const userMeData = await userMeResponse.json()
+
+    // Create a new NextResponse to allow setting cookies
+    const response = NextResponse.json({
+      accessToken, // frontend expects camelCase
+      user: {
+        id: userMeData.id,
+        email: userMeData.email,
+        name: userMeData.full_name, // Map full_name to name
+      },
+    })
+
+    // Propagate all Set-Cookie headers from the backend's login response
+    const setCookieHeaders = loginResponse.headers.getSetCookie();
+    for (const cookieHeader of setCookieHeaders) {
+      response.headers.append('Set-Cookie', cookieHeader);
     }
 
-    // Generate tokens
-    const accessToken = await generateAccessToken(userPayload)
-    const refreshToken = await generateRefreshToken(userPayload)
-
-    // Set refresh token in HTTP-only cookie
-    await setRefreshTokenCookie(refreshToken)
-
-    return NextResponse.json({
-      accessToken,
-      user: userPayload,
-    })
-  } catch {
+    return response
+  } catch (error) {
+    console.error("Login API error:", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

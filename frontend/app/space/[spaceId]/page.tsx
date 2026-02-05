@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { use, useState, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, use } from "react" // Use useEffect and useCallback
 import Link from "next/link"
 import { format } from "date-fns"
 import { DashboardHeader } from "@/components/dashboard/header"
@@ -36,113 +36,50 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { FileText, Upload, X, Plus, Calendar, Users, FolderOpen } from "lucide-react"
+import { FileText, Upload, X, Plus, Calendar, Users, FolderOpen, Loader2, AlertCircle } from "lucide-react" // Add Loader2, AlertCircle
+import { useAuth } from "@/lib/auth-context" // Import useAuth
 
-interface TenderFile {
-  name: string
-  size: string
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+
+// Updated interfaces to match backend
+export interface FrontendTenderDocument {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  // Add other fields from backend TenderDocument if needed for display
 }
 
-interface Tender {
+export interface Tender { // Aligned with backend's Tender schema
   id: string
-  title: string
-  status: "draft" | "in-progress" | "analyzed" | "completed"
-  files: TenderFile[]
-  createdAt: Date
+  name: string // Use 'name' instead of 'title'
+  description?: string
+  workspace_id: string
+  status: string // Backend status is string, not fixed enum
+  documents?: FrontendTenderDocument[] // Changed from files to documents
+  created_at: string
+  updated_at: string
 }
 
-interface Member {
-  id: string
-  name: string
+export interface Member { // Aligned with WorkspaceMemberResponse
+  id: string // User's ID
+  name: string // User's full_name
   email: string
-  role: "owner" | "admin" | "editor" | "viewer"
-  avatar?: string
+  role: string // WorkspaceRole is string
+  avatar?: string // Frontend specific
 }
 
-interface SpaceData {
+export interface WorkspaceData { // Aligned with WorkspaceResponse
+  id: string
   name: string
-  createdAt: Date
-  members: Member[]
-  tenders: Tender[]
+  description: string
+  owner_id: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
 }
 
-const spacesData: Record<string, SpaceData> = {
-  "1": {
-    name: "Government Infrastructure Projects",
-    createdAt: new Date("2024-01-15"),
-    members: [
-      { id: "m1", name: "Carlos García", email: "carlos@example.com", role: "owner" },
-      { id: "m2", name: "María López", email: "maria@example.com", role: "admin" },
-      { id: "m3", name: "Juan Martínez", email: "juan@example.com", role: "editor" },
-      { id: "m4", name: "Ana Rodríguez", email: "ana@example.com", role: "viewer" },
-    ],
-    tenders: [
-      {
-        id: "t1",
-        title: "Highway Construction Tender 2024",
-        status: "analyzed",
-        files: [
-          { name: "Technical_Requirements.pdf", size: "2.4 MB" },
-          { name: "Budget_Proposal.pdf", size: "1.8 MB" },
-        ],
-        createdAt: new Date("2024-01-20"),
-      },
-      {
-        id: "t2",
-        title: "Bridge Renovation Project",
-        status: "in-progress",
-        files: [{ name: "Project_Scope.pdf", size: "3.1 MB" }],
-        createdAt: new Date("2024-02-01"),
-      },
-    ],
-  },
-  "2": {
-    name: "Healthcare Equipment Procurement",
-    createdAt: new Date("2024-02-10"),
-    members: [
-      { id: "m5", name: "Elena Sánchez", email: "elena@example.com", role: "owner" },
-      { id: "m6", name: "Pedro Díaz", email: "pedro@example.com", role: "editor" },
-    ],
-    tenders: [
-      {
-        id: "t3",
-        title: "MRI Machine Acquisition",
-        status: "draft",
-        files: [],
-        createdAt: new Date("2024-02-15"),
-      },
-    ],
-  },
-  "3": {
-    name: "IT Services & Software",
-    createdAt: new Date("2024-03-01"),
-    members: [
-      { id: "m7", name: "Laura Fernández", email: "laura@example.com", role: "owner" },
-      { id: "m8", name: "Miguel Torres", email: "miguel@example.com", role: "admin" },
-      { id: "m9", name: "Isabel Ruiz", email: "isabel@example.com", role: "viewer" },
-    ],
-    tenders: [
-      {
-        id: "t4",
-        title: "Cloud Migration Services",
-        status: "completed",
-        files: [
-          { name: "RFP_Document.pdf", size: "4.2 MB" },
-          { name: "Vendor_Responses.pdf", size: "8.7 MB" },
-          { name: "Evaluation_Matrix.pdf", size: "1.1 MB" },
-        ],
-        createdAt: new Date("2024-03-05"),
-      },
-      {
-        id: "t5",
-        title: "Cybersecurity Assessment",
-        status: "in-progress",
-        files: [{ name: "Security_Requirements.pdf", size: "2.9 MB" }],
-        createdAt: new Date("2024-03-10"),
-      },
-    ],
-  },
-}
+// Remove mock spacesData
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -167,7 +104,7 @@ function formatStatus(status: string) {
 }
 
 function getRoleColor(role: string) {
-  switch (role) {
+  switch (role.toLowerCase()) { // Use toLowerCase to match backend enum
     case "owner":
       return "bg-primary text-primary-foreground"
     case "admin":
@@ -190,13 +127,22 @@ function getInitials(name: string) {
     .slice(0, 2)
 }
 
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024) return bytes + " B"
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB"
+}
+
 interface NewTenderDialogProps {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (name: string, files: File[]) => void
+  onSubmit: (tenderName: string, files: File[], spaceId: string) => Promise<void>
+  spaceId: string // Pass spaceId
+  isSubmitting: boolean
+  error: string | null
 }
 
-function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
+function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, error }: NewTenderDialogProps) { // Receive spaceId
   const [tenderName, setTenderName] = useState("")
   const [files, setFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
@@ -234,10 +180,10 @@ function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
 
   const handleSubmit = () => {
     if (tenderName.trim()) {
-      onSubmit(tenderName, files)
+      onSubmit(tenderName, files, spaceId) // Pass spaceId to onSubmit
       setTenderName("")
       setFiles([])
-      onClose()
+      // onClose() // Do not close immediately, let parent handle it based on submission success
     }
   }
 
@@ -257,6 +203,12 @@ function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-6 pt-4">
+            {error && ( // Display error message if present
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 text-destructive text-sm">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {error}
+            </div>
+            )}
           <div className="space-y-2">
             <Label htmlFor="tender-name" className="text-foreground">
               Tender Name
@@ -267,6 +219,7 @@ function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
               onChange={(e) => setTenderName(e.target.value)}
               placeholder="Enter tender name..."
               className="h-11 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
+              disabled={isSubmitting}
             />
           </div>
 
@@ -285,6 +238,7 @@ function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
                     : "border-border hover:border-primary/50 hover:bg-muted/50"
                 }
               `}
+              aria-disabled={isSubmitting}
             >
               <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
               <p className="text-foreground font-medium">
@@ -300,6 +254,7 @@ function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
                 accept=".pdf"
                 onChange={handleFileSelect}
                 className="hidden"
+                disabled={isSubmitting}
               />
             </div>
           </div>
@@ -333,6 +288,7 @@ function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
                       }}
                       className="text-muted-foreground hover:text-destructive transition-colors p-1"
                       aria-label={`Remove ${file.name}`}
+                      disabled={isSubmitting}
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -346,16 +302,24 @@ function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
             <Button
               variant="outline"
               onClick={onClose}
+              disabled={isSubmitting}
               className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent"
             >
               Cancel
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={!tenderName.trim()}
+              disabled={!tenderName.trim() || isSubmitting}
               className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
             >
-              Create Tender
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create Tender"
+              )}
             </Button>
           </div>
         </div>
@@ -367,30 +331,155 @@ function NewTenderDialog({ isOpen, onClose, onSubmit }: NewTenderDialogProps) {
 export default function SpaceDetailPage({
   params,
 }: {
-  params: Promise<{ spaceId: string }>
+  params: Promise<{ spaceId: string }> // Changed back to Promise
 }) {
-  const { spaceId } = use(params)
-  const space = spacesData[spaceId] || {
-    name: "Unknown Space",
-    createdAt: new Date(),
-    members: [],
-    tenders: [],
-  }
-  const [tenders, setTenders] = useState<Tender[]>(space.tenders)
+  const { spaceId } = use(params) // Unwrap params with use()
+  const { accessToken, isLoading: isAuthLoading } = useAuth()
+  const [workspace, setWorkspace] = useState<WorkspaceData | null>(null)
+  const [members, setMembers] = useState<Member[]>([])
+  const [tenders, setTenders] = useState<Tender[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isNewTenderOpen, setIsNewTenderOpen] = useState(false)
+  const [isCreatingTender, setIsCreatingTender] = useState(false)
+  const [createTenderError, setCreateTenderError] = useState<string | null>(null)
 
-  const handleCreateTender = (name: string, files: File[]) => {
-    const newTender: Tender = {
-      id: `t${Date.now()}`,
-      title: name,
-      status: "draft",
-      files: files.map((f) => ({
-        name: f.name,
-        size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`,
-      })),
-      createdAt: new Date(),
+
+  const fetchSpaceData = useCallback(async () => {
+    if (!accessToken || isAuthLoading || !spaceId) {
+      setIsLoading(true);
+      return;
     }
-    setTenders([newTender, ...tenders])
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Fetch Workspace Details
+      const workspaceResponse = await fetch(`${BACKEND_URL}/workspaces/${spaceId}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!workspaceResponse.ok) {
+        const errorData = await workspaceResponse.json();
+        throw new Error(errorData.detail || "Failed to fetch workspace details");
+      }
+      const workspaceData: WorkspaceData = await workspaceResponse.json();
+      setWorkspace(workspaceData);
+
+      // Fetch Members
+      const membersResponse = await fetch(`${BACKEND_URL}/workspaces/${spaceId}/members`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!membersResponse.ok) {
+        const errorData = await membersResponse.json();
+        throw new Error(errorData.detail || "Failed to fetch workspace members");
+      }
+      const membersData: {user_id: string, email: string, full_name: string, role: string}[] = await membersResponse.json();
+      setMembers(membersData.map(m => ({
+        id: m.user_id,
+        name: m.full_name,
+        email: m.email,
+        role: m.role,
+      })));
+
+      // Fetch Tenders
+      const tendersResponse = await fetch(`${BACKEND_URL}/tenders/workspace/${spaceId}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!tendersResponse.ok) {
+        const errorData = await tendersResponse.json();
+        throw new Error(errorData.detail || "Failed to fetch tenders");
+      }
+      const tendersData: Tender[] = await tendersResponse.json();
+      setTenders(tendersData);
+
+    } catch (err: any) {
+      setError(err.message || "An unknown error occurred while fetching space data");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accessToken, isAuthLoading, spaceId]);
+
+  useEffect(() => {
+    fetchSpaceData();
+  }, [fetchSpaceData]);
+
+  const handleCreateTender = async (name: string, files: File[], currentSpaceId: string) => { // Updated to async and receive spaceId
+    setIsCreatingTender(true);
+    setCreateTenderError(null);
+    try {
+        // Prepare form data for file upload
+        const formData = new FormData();
+        formData.append("name", name);
+        formData.append("workspace_id", currentSpaceId);
+        // Assuming backend expects files individually
+        files.forEach((file) => {
+            formData.append("files", file); // Backend expects 'files' field for file uploads
+        });
+
+        const createTenderResponse = await fetch(`${BACKEND_URL}/tenders/`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                // Do NOT set Content-Type header here; FormData sets it automatically with the correct boundary
+            },
+            body: formData,
+        });
+
+        if (!createTenderResponse.ok) {
+            const errorData = await createTenderResponse.json();
+            throw new Error(errorData.detail || "Failed to create tender");
+        }
+
+        // After successful creation, re-fetch tenders to update the list
+        await fetchSpaceData();
+        setIsNewTenderOpen(false); // Close dialog on success
+
+    } catch (err: any) {
+        setCreateTenderError(err.message || "An unknown error occurred while creating tender");
+    } finally {
+        setIsCreatingTender(false);
+    }
+  };
+
+
+  if (isAuthLoading || isLoading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-background p-6">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </main>
+    )
+  }
+
+  if (error) {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center bg-background p-6">
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 text-destructive text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              {error}
+        </div>
+        <Button onClick={() => window.location.reload()} className="mt-4">
+            Retry
+        </Button>
+      </main>
+    )
+  }
+  
+  // Ensure workspace is not null before rendering its properties
+  if (!workspace) {
+    return (
+        <main className="min-h-screen flex items-center justify-center bg-background p-6">
+            <p className="text-muted-foreground">Workspace not found.</p>
+        </main>
+    );
   }
 
   return (
@@ -412,7 +501,7 @@ export default function SpaceDetailPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbPage className="text-foreground font-medium">
-                {space.name}
+                {workspace.name}
               </BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
@@ -421,13 +510,13 @@ export default function SpaceDetailPage({
         {/* Workspace Info */}
         <Card className="border-border rounded-xl bg-card mb-8">
           <CardHeader className="pb-4">
-            <CardTitle className="text-2xl text-foreground">{space.name}</CardTitle>
+            <CardTitle className="text-2xl text-foreground">{workspace.name}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Calendar className="h-4 w-4" />
               <span className="text-sm">
-                Created on {format(space.createdAt, "MMMM d, yyyy")}
+                Created on {format(new Date(workspace.created_at), "MMMM d, yyyy")}
               </span>
             </div>
 
@@ -436,11 +525,11 @@ export default function SpaceDetailPage({
               <div className="flex items-center gap-2 text-foreground">
                 <Users className="h-4 w-4" />
                 <span className="font-medium">
-                  Members ({space.members.length})
+                  Members ({members.length})
                 </span>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                {space.members.map((member) => (
+                {members.map((member) => (
                   <div
                     key={member.id}
                     className="flex items-center gap-3 p-3 rounded-xl border border-border bg-muted/30"
@@ -477,7 +566,7 @@ export default function SpaceDetailPage({
               Tenders ({tenders.length})
             </h2>
             <Button
-              onClick={() => setIsNewTenderOpen(true)}
+              onClick={() => {setIsNewTenderOpen(true); setCreateTenderError(null);}}
               className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <Plus className="mr-2 h-4 w-4" />
@@ -507,12 +596,12 @@ export default function SpaceDetailPage({
                     <div className="flex items-center justify-between w-full pr-4">
                       <div className="flex flex-col items-start text-left">
                         <span className="text-lg font-medium text-foreground">
-                          {tender.title}
+                          {tender.name}
                         </span>
                         <span className="text-sm text-muted-foreground mt-1">
-                          Created {format(tender.createdAt, "MMM d, yyyy")} &middot;{" "}
-                          {tender.files.length} document
-                          {tender.files.length !== 1 ? "s" : ""}
+                          Created {format(new Date(tender.created_at), "MMM d, yyyy")} &middot;{" "}
+                          {tender.documents?.length || 0} document
+                          {(tender.documents?.length || 0) !== 1 ? "s" : ""}
                         </span>
                       </div>
                       <Badge
@@ -523,7 +612,7 @@ export default function SpaceDetailPage({
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="px-6 pb-5 pt-4">
-                    {tender.files.length === 0 ? (
+                    {(tender.documents?.length || 0) === 0 ? (
                       <p className="text-muted-foreground text-sm py-4 text-center">
                         No documents uploaded yet
                       </p>
@@ -532,19 +621,19 @@ export default function SpaceDetailPage({
                         <p className="text-sm font-medium text-muted-foreground mb-3">
                           Uploaded Documents
                         </p>
-                        {tender.files.map((file) => (
+                        {tender.documents?.map((doc) => (
                           <div
-                            key={file.name}
+                            key={doc.id}
                             className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/30"
                           >
                             <div className="flex items-center gap-3">
                               <FileText className="h-5 w-5 text-red-500" />
                               <span className="text-sm text-foreground">
-                                {file.name}
+                                {doc.filename}
                               </span>
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              {file.size}
+                              {formatFileSize(doc.size)}
                             </span>
                           </div>
                         ))}
@@ -571,6 +660,9 @@ export default function SpaceDetailPage({
         isOpen={isNewTenderOpen}
         onClose={() => setIsNewTenderOpen(false)}
         onSubmit={handleCreateTender}
+        spaceId={spaceId} // Pass spaceId
+        isSubmitting={isCreatingTender}
+        error={createTenderError}
       />
 
       <DashboardFooter />
@@ -579,3 +671,4 @@ export default function SpaceDetailPage({
     </ProtectedRoute>
   )
 }
+

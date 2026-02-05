@@ -31,8 +31,8 @@ function getStatusColor(status: string) {
   }
 }
 
-function formatStatus(status: string) {
-  return status
+function formatStatus(status: string | undefined | null) {
+  return (status || "draft")
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ")
@@ -67,7 +67,7 @@ export function SpacesList({ spaces }: SpacesListProps) {
                 {space.name}
               </Link>
               <span className="text-sm text-muted-foreground mt-1">
-                Created {format(space.createdAt, "MMM d, yyyy")} &middot;{" "}
+                                Created {format(new Date(space.created_at), "MMM d, yyyy")} &middot; {" "}
                 {space.tenders.length} tender{space.tenders.length !== 1 ? "s" : ""}
               </span>
             </div>
