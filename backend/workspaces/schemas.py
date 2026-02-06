@@ -4,8 +4,14 @@ from datetime import datetime
 from uuid import UUID
 from typing import List
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from backend.workspaces.models import WorkspaceRole # Import WorkspaceRole
 
 # --- Workspace Schemas ---
+
+class CollaboratorCreate(BaseModel):
+    """Schema for creating a collaborator with a specific role."""
+    email: EmailStr = Field(..., description="Email of the collaborator")
+    role: WorkspaceRole = Field(..., description="Role to assign to the collaborator")
 
 class WorkspaceBase(BaseModel):
     """Base schema for a workspace."""
@@ -14,7 +20,7 @@ class WorkspaceBase(BaseModel):
 
 class WorkspaceCreate(WorkspaceBase):
     """Schema for creating a new workspace."""
-    pass
+    collaborators: List[CollaboratorCreate] = Field(default_factory=list, description="Collaborators to add to the workspace with their roles")
 
 class WorkspaceUpdate(WorkspaceBase):
     """Schema for updating an existing workspace."""
@@ -29,6 +35,10 @@ class WorkspaceResponse(WorkspaceBase):
     updated_at: datetime = Field(..., description="Timestamp of last workspace update")
     
     model_config = ConfigDict(from_attributes=True)
+
+class WorkspaceDetailResponse(WorkspaceResponse):
+    """Schema for the detailed response of a workspace, including members."""
+    members: List[WorkspaceMemberResponse] = Field(..., description="List of members in the workspace")
 
 # --- Workspace Member Schemas ---
 

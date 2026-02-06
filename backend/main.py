@@ -8,8 +8,11 @@ from contextlib import asynccontextmanager
 import os
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware # Import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import json
+from uuid import UUID
 
 from backend.auth.models import Base
 from backend.auth.schemas import OAuthUserInfo
@@ -47,7 +50,24 @@ app = FastAPI(
     title="Lizicular API",
     description="Centralized authentication and Tender Management system",
     version="2.1.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    json_encoders={
+        UUID: lambda uuid: str(uuid)
+    }
+)
+
+# Add CORS Middleware
+origins = [
+    "http://localhost:3000",  # Frontend development server
+    # Add other origins for production if needed
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include routers

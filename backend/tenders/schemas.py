@@ -55,14 +55,15 @@ class TenderDocument(BaseModel):
     
     Representa un archivo (PDF, Word, Excel, etc.) que forma parte de una licitación.
     """
-    id: str = Field(..., description="ID único del documento")
-    name: str = Field(..., min_length=1, max_length=255, description="Nombre del archivo")
-    file_type: FileType = Field(..., description="Tipo de archivo")
-    file_size: int = Field(..., gt=0, description="Tamaño en bytes")
-    file_url: str = Field(..., description="URL del archivo en S3/Supabase")
+    id: str = Field(..., description="ID único del documento (MongoDB ObjectId)")
+    filename: str = Field(..., min_length=1, max_length=255, description="Nombre original del archivo")
+    content_type: str = Field(..., description="Tipo MIME del archivo")
+    size: int = Field(..., gt=0, description="Tamaño en bytes")
+    
+    file_url: Optional[str] = Field(None, description="URL del archivo en almacenamiento externo (S3/Supabase)")
     
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
-    uploaded_by: str = Field(..., description="UUID del usuario que subió el archivo")
+    uploaded_by: Optional[str] = Field(None, description="UUID del usuario que subió el archivo")
     
     extraction_status: ExtractionStatus = Field(default=ExtractionStatus.PENDING)
     extracted_text: Optional[str] = Field(None, max_length=50000, description="Texto extraído (limitado)")
@@ -73,9 +74,9 @@ class TenderDocument(BaseModel):
         json_schema_extra={
             "example": {
                 "id": "doc-123e4567-e89b-12d3",
-                "name": "Pliego de condiciones.pdf",
-                "file_type": "pdf",
-                "file_size": 2048576,
+                "filename": "Pliego de condiciones.pdf",
+                "content_type": "application/pdf",
+                "size": 2048576,
                 "file_url": "s3://bucket/tenders/workspace-1/tender-1/pliego.pdf",
                 "uploaded_at": "2024-01-15T10:00:00Z",
                 "uploaded_by": "user-uuid-123",
@@ -303,10 +304,9 @@ class TenderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Nombre de la licitación")
     description: Optional[str] = Field(None, max_length=1000, description="Descripción opcional")
     
-    # Mínimo 1 documento al crear
-    documents: List[TenderDocument] = Field(..., min_length=1, max_length=5)
-    
-    created_by: str = Field(..., description="UUID del usuario creador")
+    # created_by will be set by backend from current_user
+    # documents will be handled by create_tender function
+    # Status is implicit 'draft' for creation
 
 
 class TenderUpdate(BaseModel):
@@ -324,17 +324,19 @@ class Tender(BaseModel):
     
     Representa una licitación con todos sus documentos y resultados de análisis.
     """
-    id: Optional[str] = Field(None, alias="_id", description="MongoDB ObjectId como string")
+    id: str = Field(..., description="MongoDB ObjectId como string")
     workspace_id: str = Field(..., description="UUID del workspace (PostgreSQL)")
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
+    
+    status: str = Field("draft", description="Estado de la licitación") # Default status
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: str = Field(..., description="UUID del usuario creador")
     
-    # Documentos (1-5)
-    documents: List[TenderDocument] = Field(..., min_length=1, max_length=5)
+    # Documentos
+    documents: List[TenderDocument] = Field(default_factory=list) # No min_length here, can be empty
     
     # Resultados (opcional, se agregan bajo demanda)
     analysis_results: List[AnalysisResult] = Field(default_factory=list)
@@ -344,21 +346,23 @@ class Tender(BaseModel):
     
     model_config = ConfigDict(
         populate_by_name=True,
+        # alias_generator=lambda field_name: "_id" if field_name == "id" else field_name, # Not needed if mapping in utils
         json_schema_extra={
             "example": {
-                "_id": "507f1f77bcf86cd799439011",
+                "id": "507f1f77bcf86cd799439011",
                 "workspace_id": "workspace-uuid-123",
                 "name": "Construcción Carretera M-30",
                 "description": "Licitación para construcción de 15km de carretera",
+                "status": "draft",
                 "created_at": "2024-01-15T10:00:00Z",
                 "updated_at": "2024-01-15T12:30:00Z",
                 "created_by": "user-uuid-456",
                 "documents": [
                     {
                         "id": "doc-uuid-1",
-                        "name": "Pliego de condiciones.pdf",
-                        "file_type": "pdf",
-                        "file_size": 2048576,
+                        "filename": "Pliego de condiciones.pdf",
+                        "content_type": "application/pdf",
+                        "size": 2048576,
                         "file_url": "s3://bucket/tender-1/pliego.pdf",
                         "uploaded_at": "2024-01-15T10:00:00Z",
                         "uploaded_by": "user-uuid-456",
@@ -371,27 +375,30 @@ class Tender(BaseModel):
         }
     )
     
-    @field_validator('documents')
-    @classmethod
-    def validate_documents_count(cls, v):
-        """Validar que haya entre 1 y 5 documentos."""
-        if not (1 <= len(v) <= 5):
-            raise ValueError('Debe haber entre 1 y 5 documentos')
-        return v
-
+    # Removed documents validator as min_length is no longer on Tender
+    # @field_validator('documents')
+    # @classmethod
+    # def validate_documents_count(cls, v):
+    #     """Validar que haya entre 1 y 5 documentos."""
+    #     if not (1 <= len(v) <= 5):
+    #         raise ValueError('Debe haber entre 1 y 5 documentos')
+    #     return v
 
 class TenderResponse(BaseModel):
     """Schema para respuestas de licitaciones."""
-    id: str = Field(..., alias="_id")
+    id: str = Field(...)
     workspace_id: str
     name: str
     description: Optional[str]
+    status: str # Add status
     created_at: datetime
     updated_at: datetime
     created_by: str
-    documents_count: int
-    analysis_results_count: int
+    documents: List[TenderDocument] # Add documents
+    analysis_results: List[AnalysisResult] # Add analysis results
     
+    # Removed documents_count and analysis_results_count
+
     model_config = ConfigDict(populate_by_name=True)
 
 

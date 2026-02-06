@@ -5,9 +5,9 @@ CRUD operations for tenders, documents, and analysis results.
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
-from bson import ObjectId
+from bson import ObjectId, Binary # Import Binary
 from pymongo.errors import DuplicateKeyError
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, UploadFile # Import UploadFile
 
 from .schemas import (
     Tender, TenderCreate, TenderUpdate,
@@ -73,7 +73,9 @@ class MongoDB:
 
 async def create_tender(
     db: Any,
-    tender_data: TenderCreate
+    tender_data: TenderCreate,
+    files: List[UploadFile],
+    created_by: str # Add created_by parameter
 ) -> Tender:
     """
     Crea una nueva licitación.
@@ -81,6 +83,8 @@ async def create_tender(
     Args:
         db: Base de datos MongoDB
         tender_data: Datos de la licitación
+        files: Lista de archivos a subir
+        created_by: ID del usuario creador
         
     Returns:
         Licitación creada
@@ -88,25 +92,45 @@ async def create_tender(
     Raises:
         HTTPException 400: Si el nombre ya existe en el workspace
     """
-    # Crear el objeto completo
-    tender_dict = {
-        "workspace_id": tender_data.workspace_id,
-        "name": tender_data.name,
-        "description": tender_data.description,
+    # Create the full tender dictionary
+    tender_dict = tender_data.model_dump(by_alias=True, exclude_unset=True) # Start with data from TenderCreate
+    tender_dict.update({
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
-        "created_by": tender_data.created_by,
-        "documents": [doc.model_dump() for doc in tender_data.documents],
+        "created_by": created_by, # Add created_by here
         "analysis_results": [],
         "search_text": f"{tender_data.name} {tender_data.description or ''}".lower()
-    }
+    })
+    
+    uploaded_files_info = []
+    for file in files:
+        file_content = await file.read()
+        file_document = {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size": len(file_content),
+            "upload_date": datetime.utcnow(),
+            "data": Binary(file_content) # Store file content as binary
+        }
+        # Insert file into a separate 'tender_files' collection
+        file_result = await db.tender_files.insert_one(file_document)
+        
+        uploaded_files_info.append(TenderDocument(
+            id=str(file_result.inserted_id),
+            filename=file.filename,
+            content_type=file.content_type,
+            size=len(file_content),
+            extraction_status="pending" # Default status
+        ).model_dump())
+        
+    tender_dict["documents"] = uploaded_files_info
     
     try:
         result = await db.tenders.insert_one(tender_dict)
         
         # Obtener el documento creado
         created_tender = await db.tenders.find_one({"_id": result.inserted_id})
-        created_tender["_id"] = str(created_tender["_id"])
+        created_tender["id"] = str(created_tender["_id"]) # Map _id to id for Pydantic model
         
         return Tender(**created_tender)
         
@@ -115,6 +139,77 @@ async def create_tender(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Ya existe una licitación con el nombre '{tender_data.name}' en este workspace"
         )
+
+
+async def add_documents_to_existing_tender(
+    db: Any,
+    tender_id: str,
+    files: List[UploadFile]
+) -> Optional[Tender]:
+    """
+    Añade documentos a una licitación existente.
+    
+    Args:
+        db: Base de datos MongoDB
+        tender_id: ID de la licitación
+        files: Lista de archivos a subir
+        
+    Returns:
+        Licitación actualizada con los nuevos documentos.
+        
+    Raises:
+        HTTPException 404: Si la licitación no existe.
+        HTTPException 400: Si se excede el límite de documentos (por ejemplo, 5).
+    """
+    tender = await get_tender_by_id(db, tender_id)
+    if not tender:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Licitación no encontrada"
+        )
+
+    # Check document limit (e.g., max 5 documents total)
+    if len(tender.documents) + len(files) > 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se pueden agregar más de 5 documentos a una licitación."
+        )
+
+    uploaded_files_info = []
+    for file in files:
+        file_content = await file.read()
+        file_document = {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size": len(file_content),
+            "upload_date": datetime.utcnow(),
+            "data": Binary(file_content) # Store file content as binary
+        }
+        # Insert file into a separate 'tender_files' collection
+        file_result = await db.tender_files.insert_one(file_document)
+        
+        uploaded_files_info.append(TenderDocument(
+            id=str(file_result.inserted_id),
+            filename=file.filename,
+            content_type=file.content_type,
+            size=len(file_content),
+            extraction_status="pending" # Default status
+        ).model_dump())
+
+    result = await db.tenders.find_one_and_update(
+        {"_id": ObjectId(tender_id)},
+        {
+            "$push": {"documents": {"$each": uploaded_files_info}}, # Use $each for multiple documents
+            "$set": {"updated_at": datetime.utcnow()}
+        },
+        return_document=True
+    )
+
+    if result:
+        result["id"] = str(result["_id"])
+        return Tender(**result)
+    
+    return None # Should not happen if tender was found initially
 
 
 async def get_tender_by_id(
@@ -135,7 +230,7 @@ async def get_tender_by_id(
         tender = await db.tenders.find_one({"_id": ObjectId(tender_id)})
         
         if tender:
-            tender["_id"] = str(tender["_id"])
+            tender["id"] = str(tender["_id"])
             return Tender(**tender)
         
         return None
@@ -172,7 +267,7 @@ async def get_tenders_by_workspace(
     
     tenders = []
     async for tender in cursor:
-        tender["_id"] = str(tender["_id"])
+        tender["id"] = str(tender["_id"]) # Map _id to id for Pydantic model
         tenders.append(Tender(**tender))
     
     return tenders
@@ -224,7 +319,7 @@ async def update_tender(
         )
         
         if result:
-            result["_id"] = str(result["_id"])
+            result["id"] = str(result["_id"])
             return Tender(**result)
         
         raise HTTPException(
@@ -244,7 +339,7 @@ async def delete_tender(
     tender_id: str
 ) -> bool:
     """
-    Elimina una licitación.
+    Elimina una licitación y sus documentos asociados.
     
     Args:
         db: Base de datos MongoDB
@@ -253,8 +348,49 @@ async def delete_tender(
     Returns:
         True si se eliminó, False si no existía
     """
+    # 1. Obtener la licitación para conseguir los IDs de sus documentos
+    tender = await get_tender_by_id(db, tender_id)
+    if not tender:
+        return False # Tender no encontrado
+        
+    # 2. Extraer los IDs de los documentos asociados
+    document_ids_to_delete = [ObjectId(doc.id) for doc in tender.documents]
+    
+    # 3. Eliminar los documentos de la colección 'tender_files'
+    if document_ids_to_delete:
+        await db.tender_files.delete_many({"_id": {"$in": document_ids_to_delete}})
+        
+    # 4. Eliminar la licitación de la colección 'tenders'
     result = await db.tenders.delete_one({"_id": ObjectId(tender_id)})
     return result.deleted_count > 0
+
+
+async def delete_tenders_by_workspace(
+    db: Any,
+    workspace_id: str
+) -> None:
+    """
+    Elimina todas las licitaciones y sus documentos asociados para un workspace.
+    
+    Args:
+        db: Base de datos MongoDB
+        workspace_id: UUID del workspace
+    """
+    # 1. Encontrar todas las licitaciones en el workspace
+    tenders_to_delete = await get_tenders_by_workspace(db, workspace_id)
+    
+    # 2. Eliminar documentos asociados (si están en una colección separada como tender_files)
+    #    Asumimos que los documentos están en db.tender_files y se referencian por su 'id' en tender.documents
+    document_ids_to_delete = []
+    for tender in tenders_to_delete:
+        for doc in tender.documents:
+            document_ids_to_delete.append(ObjectId(doc.id))
+            
+    if document_ids_to_delete:
+        await db.tender_files.delete_many({"_id": {"$in": document_ids_to_delete}})
+        
+    # 3. Eliminar todas las licitaciones del workspace
+    await db.tenders.delete_many({"workspace_id": workspace_id})
 
 
 async def count_tenders_in_workspace(
@@ -279,59 +415,78 @@ async def count_tenders_in_workspace(
 # DOCUMENT OPERATIONS
 # ============================================================================
 
-async def add_document_to_tender(
+async def add_documents_to_existing_tender(
     db: Any,
     tender_id: str,
-    document: TenderDocument
+    files: List[UploadFile]
 ) -> Optional[Tender]:
     """
-    Agrega un documento a una licitación.
+    Añade documentos a una licitación existente.
     
     Args:
         db: Base de datos MongoDB
         tender_id: ID de la licitación
-        document: Documento a agregar
+        files: Lista de archivos a subir
         
     Returns:
-        Licitación actualizada
+        Licitación actualizada con los nuevos documentos.
         
     Raises:
-        HTTPException 400: Si ya hay 5 documentos
-        HTTPException 404: Si la licitación no existe
+        HTTPException 404: Si la licitación no existe.
+        HTTPException 400: Si se excede el límite de documentos (por ejemplo, 5).
     """
-    # Primero verificar que no exceda el límite
     tender = await get_tender_by_id(db, tender_id)
-    
     if not tender:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Licitación no encontrada"
         )
-    
-    if len(tender.documents) >= 5:
+
+    # Check document limit (e.g., max 5 documents total)
+    if len(tender.documents) + len(files) > 5:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se pueden agregar más de 5 documentos a una licitación"
+            detail="No se pueden agregar más de 5 documentos a una licitación."
         )
-    
-    # Agregar el documento
+
+    uploaded_files_info = []
+    for file in files:
+        file_content = await file.read()
+        file_document = {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size": len(file_content),
+            "upload_date": datetime.utcnow(),
+            "data": Binary(file_content) # Store file content as binary
+        }
+        # Insert file into a separate 'tender_files' collection
+        file_result = await db.tender_files.insert_one(file_document)
+        
+        uploaded_files_info.append(TenderDocument(
+            id=str(file_result.inserted_id),
+            filename=file.filename,
+            content_type=file.content_type,
+            size=len(file_content),
+            extraction_status="pending" # Default status
+        ).model_dump())
+
     result = await db.tenders.find_one_and_update(
         {"_id": ObjectId(tender_id)},
         {
-            "$push": {"documents": document.model_dump()},
+            "$push": {"documents": {"$each": uploaded_files_info}}, # Use $each for multiple documents
             "$set": {"updated_at": datetime.utcnow()}
         },
         return_document=True
     )
-    
+
     if result:
-        result["_id"] = str(result["_id"])
+        result["id"] = str(result["_id"])
         return Tender(**result)
     
-    return None
+    return None # Should not happen if tender was found initially
 
 
-async def remove_document_from_tender(
+async def delete_document(
     db: Any,
     tender_id: str,
     document_id: str
@@ -366,7 +521,14 @@ async def remove_document_from_tender(
             detail="No se puede eliminar el último documento. Debe haber al menos 1 documento."
         )
     
-    # Eliminar el documento
+    # 1. Eliminar el contenido del archivo de la colección 'tender_files'
+    file_delete_result = await db.tender_files.delete_one({"_id": ObjectId(document_id)})
+    if file_delete_result.deleted_count == 0:
+        # If the file content itself wasn't found, it might be an inconsistency,
+        # but we should still proceed to remove the reference from the tender.
+        print(f"Warning: File content for document_id {document_id} not found in tender_files collection.")
+
+    # 2. Eliminar el documento de la licitación
     result = await db.tenders.find_one_and_update(
         {"_id": ObjectId(tender_id)},
         {
@@ -377,7 +539,7 @@ async def remove_document_from_tender(
     )
     
     if result:
-        result["_id"] = str(result["_id"])
+        result["id"] = str(result["_id"])
         return Tender(**result)
     
     return None
@@ -416,7 +578,7 @@ async def add_analysis_result_to_tender(
     )
     
     if result:
-        result["_id"] = str(result["_id"])
+        result["id"] = str(result["_id"])
         return Tender(**result)
     
     raise HTTPException(
@@ -481,7 +643,7 @@ async def delete_analysis_result(
     )
     
     if result:
-        result["_id"] = str(result["_id"])
+        result["id"] = str(result["_id"])
         return Tender(**result)
     
     return None
@@ -521,7 +683,7 @@ async def search_tenders(
     
     tenders = []
     async for tender in cursor:
-        tender["_id"] = str(tender["_id"])
+        tender["id"] = str(tender["_id"])
         tenders.append(Tender(**tender))
     
     return tenders
@@ -550,7 +712,7 @@ async def get_tenders_by_extraction_status(
     
     tenders = []
     async for tender in cursor:
-        tender["_id"] = str(tender["_id"])
+        tender["id"] = str(tender["_id"])
         tenders.append(Tender(**tender))
     
     return tenders

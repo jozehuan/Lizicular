@@ -5,7 +5,7 @@ Database models for workspaces and their members.
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Index, Text, ForeignKey, Enum
+from sqlalchemy import Column, String, Boolean, DateTime, Index, Text, ForeignKey, Enum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from backend.auth.models import Base
@@ -34,7 +34,10 @@ class Workspace(Base):
     owner = relationship("User", back_populates="owned_workspaces")
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan", passive_deletes=True)
     
-    __table_args__ = (Index('ix_workspaces_owner_active', 'owner_id', 'is_active'),)
+    __table_args__ = (
+        Index('ix_workspaces_owner_active', 'owner_id', 'is_active'),
+        UniqueConstraint('owner_id', 'name', name='uq_workspace_owner_name') # Add this line
+    )
 
     def __repr__(self) -> str:
         return f"<Workspace(id={self.id}, name={self.name}, owner_id={self.owner_id})>"
