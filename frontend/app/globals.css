@@ -10,20 +10,20 @@
   --card-foreground: #0a0a0a;
   --popover: #FFFFFF;
   --popover-foreground: #0a0a0a;
-  --primary: #34bbe9;
+  --primary: #104d7a;
   --primary-foreground: #FFFFFF;
   --secondary: #e8f7fc;
   --secondary-foreground: #0a0a0a;
   --muted: #f5f3ef;
   --muted-foreground: #6b6b6b;
-  --accent: #34bbe9;
+  --accent: #104d7a;
   --accent-foreground: #FFFFFF;
   --destructive: #ef4444;
   --destructive-foreground: #FFFFFF;
   --border: #e5e2dc;
   --input: #e5e2dc;
-  --ring: #34bbe9;
-  --chart-1: #34bbe9;
+  --ring: #104d7a;
+  --chart-1: #104d7a;
   --chart-2: #0a0a0a;
   --chart-3: #6b6b6b;
   --chart-4: #e8f7fc;
@@ -31,12 +31,12 @@
   --radius: 0.75rem;
   --sidebar: #FDFBF7;
   --sidebar-foreground: #0a0a0a;
-  --sidebar-primary: #34bbe9;
+  --sidebar-primary: #104d7a;
   --sidebar-primary-foreground: #FFFFFF;
   --sidebar-accent: #e8f7fc;
   --sidebar-accent-foreground: #0a0a0a;
   --sidebar-border: #e5e2dc;
-  --sidebar-ring: #34bbe9;
+  --sidebar-ring: #104d7a;
 }
 
 .dark {
@@ -77,6 +77,7 @@
 @theme inline {
   --font-sans: 'Geist', 'Geist Fallback';
   --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --font-yikes: 'Yikes', sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -123,3 +124,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+@font-face {
+  font-family: 'Yikes';
+  src: url('/fonts/Yikes.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+

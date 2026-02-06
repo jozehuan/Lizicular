@@ -6,31 +6,13 @@ import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { X, Send } from "lucide-react"
+import { X, Send, MessageCircle } from "lucide-react"
 
 interface Message {
   id: string
   content: string
   sender: "user" | "agent"
   timestamp: Date
-}
-
-function LizardIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2" />
-      <path d="M2 9v1c0 1.1.9 2 2 2h1" />
-      <circle cx="16" cy="11" r="0.5" fill="currentColor" />
-    </svg>
-  )
 }
 
 export function ChatbotWidget() {
@@ -95,7 +77,7 @@ export function ChatbotWidget() {
           <CardHeader className="bg-primary text-primary-foreground py-4 px-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <LizardIcon className="h-6 w-6" />
+                <MessageCircle className="h-6 w-6" />
                 <CardTitle className="text-base font-semibold">Lizi Assistant</CardTitle>
               </div>
               <button
@@ -160,7 +142,7 @@ export function ChatbotWidget() {
         {isOpen ? (
           <X className="h-6 w-6" />
         ) : (
-          <LizardIcon className="h-7 w-7" />
+          <MessageCircle className="h-7 w-7" />
         )}
       </Button>
     </div>

@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react" // Import useEffect
-import { DashboardHeader } from "@/components/dashboard/header"
 import { DashboardFooter } from "@/components/dashboard/footer"
 import { ChatbotWidget } from "@/components/dashboard/chatbot-widget"
 import { CreateSpaceForm } from "@/components/dashboard/create-space-form"
@@ -10,6 +9,16 @@ import { ProtectedRoute } from "@/components/auth/protected-route"
 import { Button } from "@/components/ui/button"
 import { Plus, Loader2, AlertCircle } from "lucide-react" // Import Loader2 and AlertCircle
 import { useAuth } from "@/lib/auth-context" // Import useAuth
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog" // Import AlertDialog components
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
@@ -41,6 +50,8 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [isCreatingSpace, setIsCreatingSpace] = useState(false) // New state for creating space
   const [createSpaceError, setCreateSpaceError] = useState<string | null>(null) // New state for create space error
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false) // State for delete confirmation dialog
+  const [spaceToDeleteId, setSpaceToDeleteId] = useState<string | null>(null) // State to store ID of space to delete
 
   const fetchSpaces = useCallback(async () => {
     if (!accessToken || isAuthLoading) {
@@ -75,7 +86,7 @@ export default function DashboardPage() {
     fetchSpaces()
   }, [fetchSpaces])
 
-  const handleCreateSpace = async (name: string, description: string, collaborators: string[]) => { // Added description
+  const handleCreateSpace = async (name: string, description: string, collaborators: { email: string; role: string }[]) => {
     setIsCreatingSpace(true)
     setCreateSpaceError(null)
     try {
@@ -86,7 +97,7 @@ export default function DashboardPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ name, description }), // Include description
+        body: JSON.stringify({ name, description, collaborators: collaborators }), // Include full collaborator objects
       })
 
       if (!createResponse.ok) {
@@ -95,27 +106,7 @@ export default function DashboardPage() {
       }
 
       const newWorkspace: Space = await createResponse.json()
-
-      // 2. Add collaborators (if any)
-      for (const email of collaborators) {
-        const addMemberResponse = await fetch(`${BACKEND_URL}/workspaces/${newWorkspace.id}/members`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ user_email: email, role: "VIEWER" }), // Default role VIEWER
-        })
-
-        if (!addMemberResponse.ok) {
-          const errorData = await addMemberResponse.json()
-          console.error(`Failed to add collaborator ${email}:`, errorData.detail)
-          // Decide how to handle this error: warn user, rollback, etc.
-          // For now, we'll continue trying to add other collaborators and report a general error if any fail.
-          setCreateSpaceError(prev => (prev ? `${prev}; Failed to add ${email}` : `Failed to add collaborator ${email}`))
-        }
-      }
-
+      
       // Refresh the list of spaces to show the new one and its members
       await fetchSpaces()
       setShowCreateForm(false)
@@ -125,6 +116,42 @@ export default function DashboardPage() {
       setIsCreatingSpace(false)
     }
   }
+
+  const handleDeleteSpaceClick = (spaceId: string) => {
+    setSpaceToDeleteId(spaceId);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!spaceToDeleteId) return;
+
+    try {
+      const deleteResponse = await fetch(`${BACKEND_URL}/workspaces/${spaceToDeleteId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!deleteResponse.ok) {
+        const errorData = await deleteResponse.json();
+        throw new Error(errorData.detail || "Failed to delete space");
+      }
+
+      await fetchSpaces(); // Refresh the list
+      setSpaceToDeleteId(null);
+      setShowDeleteConfirm(false);
+    } catch (err: any) {
+      setError(err.message || "An unknown error occurred during deletion"); // Use main error state for deletion errors
+      setSpaceToDeleteId(null);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setSpaceToDeleteId(null);
+    setShowDeleteConfirm(false);
+  };
 
   if (isAuthLoading || isLoading) {
     return (
@@ -151,7 +178,6 @@ export default function DashboardPage() {
   return (
     <ProtectedRoute>
     <div className="min-h-screen bg-background flex flex-col">
-      <DashboardHeader />
       
       <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full">
         <div className="flex items-center justify-between mb-8">
@@ -179,11 +205,30 @@ export default function DashboardPage() {
           />
         )}
 
-        <SpacesList spaces={spaces} />
+        <SpacesList spaces={spaces} onDeleteSpace={handleDeleteSpaceClick} />
       </main>
 
       <DashboardFooter />
       <ChatbotWidget />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete your
+              workspace and all associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelDelete}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
     </ProtectedRoute>
   )

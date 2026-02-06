@@ -4,7 +4,6 @@ import React from "react"
 import { useState, useEffect, useCallback, useRef, use } from "react" // Use useEffect and useCallback
 import Link from "next/link"
 import { format } from "date-fns"
-import { DashboardHeader } from "@/components/dashboard/header"
 import { DashboardFooter } from "@/components/dashboard/footer"
 import { ChatbotWidget } from "@/components/dashboard/chatbot-widget"
 import { ProtectedRoute } from "@/components/auth/protected-route"
@@ -19,6 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -36,10 +36,37 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { FileText, Upload, X, Plus, Calendar, Users, FolderOpen, Loader2, AlertCircle } from "lucide-react" // Add Loader2, AlertCircle
+import { FileText, Upload, X, Plus, Calendar, Users, FolderOpen, Loader2, AlertCircle, Trash2 } from "lucide-react" // Add Loader2, AlertCircle, Trash2
 import { useAuth } from "@/lib/auth-context" // Import useAuth
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog" // Import AlertDialog components
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+
+const HexagonIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+  </svg>
+)
 
 // Updated interfaces to match backend
 export interface FrontendTenderDocument {
@@ -334,7 +361,7 @@ export default function SpaceDetailPage({
   params: Promise<{ spaceId: string }> // Changed back to Promise
 }) {
   const { spaceId } = use(params) // Unwrap params with use()
-  const { accessToken, isLoading: isAuthLoading } = useAuth()
+  const { user, accessToken, isLoading: isAuthLoading } = useAuth() // Get the user object
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null)
   const [members, setMembers] = useState<Member[]>([])
   const [tenders, setTenders] = useState<Tender[]>([])
@@ -343,6 +370,29 @@ export default function SpaceDetailPage({
   const [isNewTenderOpen, setIsNewTenderOpen] = useState(false)
   const [isCreatingTender, setIsCreatingTender] = useState(false)
   const [createTenderError, setCreateTenderError] = useState<string | null>(null)
+  const [showDeleteTenderConfirm, setShowDeleteTenderConfirm] = useState(false) // State for tender delete confirmation dialog
+  const [tenderToDeleteId, setTenderToDeleteId] = useState<string | null>(null) // State to store ID of tender to delete
+
+  const [isEditingWorkspaceName, setIsEditingWorkspaceName] = useState(false); // State for inline editing of workspace name
+  const [newWorkspaceName, setNewWorkspaceName] = useState(workspace?.name || ""); // Holds the new name during editing
+
+  const [showNewCollaboratorForm, setShowNewCollaboratorForm] = useState(false); // State to show/hide new collaborator form
+  const [newCollaboratorEmail, setNewCollaboratorEmail] = useState(""); // Email for new collaborator
+  const [newCollaboratorRole, setNewCollaboratorRole] = useState("VIEWER"); // Role for new collaborator
+
+  // Derived state to check if current user is owner or admin
+  const currentUserIsOwner = members.find(m => m.id === user?.id)?.role === "OWNER";
+  const currentUserIsAdmin = members.find(m => m.id === user?.id)?.role === "ADMIN";
+  const canEditWorkspaceName = currentUserIsOwner || currentUserIsAdmin;
+  const canAddRemoveCollaborators = currentUserIsOwner || currentUserIsAdmin; // Simplified for now, can be refined
+
+  useEffect(() => {
+    if (workspace?.name) {
+      setNewWorkspaceName(workspace.name);
+    }
+  }, [workspace?.name]);
+
+  const currentMemberRole = members.find(m => m.id === user?.id)?.role;
 
 
   const fetchSpaceData = useCallback(async () => {
@@ -380,12 +430,13 @@ export default function SpaceDetailPage({
         throw new Error(errorData.detail || "Failed to fetch workspace members");
       }
       const membersData: {user_id: string, email: string, full_name: string, role: string}[] = await membersResponse.json();
-      setMembers(membersData.map(m => ({
+      const mappedMembers = membersData.map(m => ({
         id: m.user_id,
         name: m.full_name,
         email: m.email,
         role: m.role,
-      })));
+      }));
+      setMembers(mappedMembers);
 
       // Fetch Tenders
       const tendersResponse = await fetch(`${BACKEND_URL}/tenders/workspace/${spaceId}`, {
@@ -407,6 +458,41 @@ export default function SpaceDetailPage({
       setIsLoading(false);
     }
   }, [accessToken, isAuthLoading, spaceId]);
+
+  useEffect(() => {
+    fetchSpaceData();
+  }, [fetchSpaceData]);
+
+  const handleUpdateWorkspaceName = async () => {
+    if (!workspace || !newWorkspaceName.trim() || newWorkspaceName === workspace.name) {
+      setIsEditingWorkspaceName(false);
+      setNewWorkspaceName(workspace?.name || ""); // Revert to original if no change or invalid
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/workspaces/${workspace.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ name: newWorkspaceName }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to update workspace name");
+      }
+
+      await fetchSpaceData(); // Refresh all data to reflect new name and ensure consistency
+      setIsEditingWorkspaceName(false);
+    } catch (err: any) {
+      setError(err.message || "An error occurred while updating workspace name");
+      setNewWorkspaceName(workspace?.name || ""); // Revert on error
+      setIsEditingWorkspaceName(false);
+    }
+  };
 
   useEffect(() => {
     fetchSpaceData();
@@ -450,6 +536,156 @@ export default function SpaceDetailPage({
     }
   };
 
+  const handleUpdateMemberRole = async (workspaceId: string, memberId: string, newRole: string) => {
+    try {
+      let response;
+      if (newRole === "NONE") {
+        // Remove member
+        response = await fetch(`${BACKEND_URL}/workspaces/${workspaceId}/members/${memberId}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+      } else {
+        // Update role
+        response = await fetch(`${BACKEND_URL}/workspaces/${workspaceId}/members/${memberId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ role: newRole }),
+        });
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to modify member");
+      }
+
+      // Re-fetch all space data to update members and potentially currentMemberRole
+      await fetchSpaceData();
+    } catch (err: any) {
+      setError(err.message || "An error occurred while modifying member role");
+    }
+  };
+
+  const handleAddCollaborator = async () => {
+    if (!workspace || !newCollaboratorEmail.trim()) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/workspaces/${workspace.id}/members`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ user_email: newCollaboratorEmail, role: newCollaboratorRole }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to add collaborator");
+      }
+      // Handle the case where the user was omitted (status 200 with message)
+      if (response.status === 200) {
+        const text = await response.text();
+        if (text.includes("not found")) {
+          // Display a temporary message to the user that the collaborator was not found
+          setError(`Collaborator with email ${newCollaboratorEmail} not found and was omitted.`);
+          setTimeout(() => setError(null), 5000); // Clear message after 5 seconds
+        }
+      }
+
+
+      await fetchSpaceData(); // Refresh all data to update members
+      setShowNewCollaboratorForm(false);
+      setNewCollaboratorEmail("");
+      setNewCollaboratorRole("VIEWER");
+    } catch (err: any) {
+      setError(err.message || "An error occurred while adding collaborator");
+    }
+  };
+
+  const handleDeleteTenderClick = (tenderId: string) => {
+    setTenderToDeleteId(tenderId);
+    setShowDeleteTenderConfirm(true);
+  };
+
+  const handleCancelDeleteTender = () => {
+    setShowDeleteTenderConfirm(false);
+    setTenderToDeleteId(null);
+  };
+
+  const handleConfirmDeleteTender = async () => {
+    if (!tenderToDeleteId) return;
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/tenders/${tenderToDeleteId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to delete tender");
+      }
+
+      await fetchSpaceData(); // Refresh the list of tenders
+      handleCancelDeleteTender(); // Close dialog and clear ID
+    } catch (err: any) {
+      setError(err.message || "An error occurred while deleting the tender");
+      handleCancelDeleteTender(); // Close dialog anyway
+    }
+  };
+
+  const handleDownloadDocument = async (tenderId: string, documentId: string, filename: string) => {
+    if (!accessToken) {
+      setError("Authentication token is missing. Please log in again.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/tenders/${tenderId}/documents/${documentId}/download`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to download document: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      // Get the content-disposition header to find the actual filename, if provided by backend
+      const contentDisposition = response.headers.get("Content-Disposition");
+      let downloadFilename = filename;
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="([^"]+)"/);
+        if (filenameMatch && filenameMatch[1]) {
+          downloadFilename = filenameMatch[1];
+        }
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadFilename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || "An error occurred during document download.");
+    }
+  };
 
   if (isAuthLoading || isLoading) {
     return (
@@ -485,8 +721,6 @@ export default function SpaceDetailPage({
   return (
     <ProtectedRoute>
     <div className="min-h-screen bg-background flex flex-col">
-      <DashboardHeader />
-
       <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full">
         <Breadcrumb className="mb-8">
           <BreadcrumbList>
@@ -510,15 +744,45 @@ export default function SpaceDetailPage({
         {/* Workspace Info */}
         <Card className="border-border rounded-xl bg-card mb-8">
           <CardHeader className="pb-4">
-            <CardTitle className="text-2xl text-foreground">{workspace.name}</CardTitle>
+            <div className="flex items-center gap-4">
+              <HexagonIcon className="h-8 w-8 text-primary" fill="currentColor" /> {/* Larger HexagonIcon */}
+              <div>
+                {isEditingWorkspaceName && canEditWorkspaceName ? (
+                  <Input
+                    value={newWorkspaceName}
+                    onChange={(e) => setNewWorkspaceName(e.target.value)}
+                    onBlur={handleUpdateWorkspaceName}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleUpdateWorkspaceName();
+                      }
+                      if (e.key === "Escape") {
+                        setIsEditingWorkspaceName(false);
+                        setNewWorkspaceName(workspace?.name || "");
+                      }
+                    }}
+                    className="h-9 text-2xl font-semibold bg-background"
+                  />
+                ) : (
+                  <CardTitle 
+                    className="text-2xl text-foreground flex items-baseline gap-2 cursor-pointer"
+                    onDoubleClick={() => canEditWorkspaceName && setIsEditingWorkspaceName(true)}
+                  >
+                    {workspace.name}
+                    <span className="text-sm text-muted-foreground font-normal ml-auto">
+                      Created on {format(new Date(workspace.created_at), "MMMM d, yyyy")}
+                    </span>
+                  </CardTitle>
+                )}
+                {workspace.description && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {workspace.description}
+                  </p>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span className="text-sm">
-                Created on {format(new Date(workspace.created_at), "MMMM d, yyyy")}
-              </span>
-            </div>
 
             {/* Members Section */}
             <div className="space-y-3">
@@ -529,32 +793,131 @@ export default function SpaceDetailPage({
                 </span>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                {members.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-border bg-muted/30"
-                  >
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                        {getInitials(member.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {member.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {member.email}
-                      </p>
-                    </div>
-                    <Badge
-                      className={`rounded-lg text-xs capitalize ${getRoleColor(member.role)}`}
+                {members.map((member) => {
+                  // Determine if current user is owner or admin of this workspace
+                  const currentUserIsOwner = members.find(m => m.id === user?.id)?.role === "OWNER";
+                  const currentUserIsAdmin = members.find(m => m.id === user?.id)?.role === "ADMIN";
+                  
+                  // Determine if the role can be edited by the current user
+                  let canEditRole = false;
+                  if (currentUserIsOwner) {
+                    canEditRole = true; // Owner can edit anyone
+                  } else if (currentUserIsAdmin) {
+                    // Admin can edit non-owner/non-admin members
+                    if (member.role !== "OWNER" && member.role !== "ADMIN") {
+                      canEditRole = true;
+                    }
+                  }
+
+                  // Determine if the role selector should be visible (i.e., user is OWNER or ADMIN)
+                  const canSeeRoleSelector = currentUserIsOwner || currentUserIsAdmin;
+
+                  return (
+                    <div
+                      key={member.id}
+                      className="flex items-center gap-3 p-3 rounded-xl border border-border bg-muted/30"
                     >
-                      {member.role}
-                    </Badge>
-                  </div>
-                ))}
+                      <Avatar className="h-10 w-10">
+                        <AvatarFallback className="bg-primary/10 text-primary text-sm">
+                          {getInitials(member.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {member.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {member.email}
+                        </p>
+                      </div>
+                      {member.role === "OWNER" ? ( // OWNER role is always plain text, unchangeable via selector
+                        <Badge
+                          className={`rounded-lg text-xs capitalize ${getRoleColor(member.role)}`}
+                        >
+                          {member.role}
+                        </Badge>
+                      ) : canSeeRoleSelector ? (
+                        <Select
+                          value={member.role}
+                          onValueChange={(newRole) => handleUpdateMemberRole(workspace.id, member.id, newRole)}
+                          disabled={!canEditRole || isAuthLoading} // Disable if no permission or loading
+                        >
+                                                  <SelectTrigger className="w-[120px] rounded-lg text-xs">
+                                                    <SelectValue>{member.role}</SelectValue>
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    <SelectItem value="ADMIN">ADMIN</SelectItem>
+                                                    <SelectItem value="EDITOR">EDITOR</SelectItem>
+                                                    <SelectItem value="VIEWER">VIEWER</SelectItem>
+                                                    <SelectItem value="NONE">NONE</SelectItem> {/* Added NONE option */}
+                                                  </SelectContent>                        </Select>
+                      ) : (
+                        <Badge
+                          className={`rounded-lg text-xs capitalize ${getRoleColor(member.role)}`}
+                        >
+                          {member.role}
+                        </Badge>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
+              {canAddRemoveCollaborators && (
+                <div className="pt-4">
+                  {!showNewCollaboratorForm ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowNewCollaboratorForm(true)}
+                      className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent w-full"
+                    >
+                      <Plus className="mr-2 h-4 w-4" /> Add Collaborator
+                    </Button>
+                  ) : (
+                    <div className="flex flex-col gap-3 p-3 rounded-xl border border-border bg-muted/30">
+                      <Input
+                        type="email"
+                        placeholder="Collaborator Email"
+                        value={newCollaboratorEmail}
+                        onChange={(e) => setNewCollaboratorEmail(e.target.value)}
+                        className="h-9 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
+                      />
+                      <Select
+                        value={newCollaboratorRole}
+                        onValueChange={(value) => setNewCollaboratorRole(value)}
+                      >
+                        <SelectTrigger className="w-full rounded-xl border-border bg-background text-foreground">
+                          <SelectValue placeholder="Select Role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ADMIN">ADMIN</SelectItem>
+                          <SelectItem value="EDITOR">EDITOR</SelectItem>
+                          <SelectItem value="VIEWER">VIEWER</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleAddCollaborator}
+                          disabled={!newCollaboratorEmail.trim() || isAuthLoading}
+                          className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 flex-1"
+                        >
+                          Add
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setShowNewCollaboratorForm(false);
+                            setNewCollaboratorEmail("");
+                            setNewCollaboratorRole("VIEWER");
+                          }}
+                          className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent flex-1"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -563,7 +926,7 @@ export default function SpaceDetailPage({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-foreground">
-              Tenders ({tenders.length})
+              Tenders
             </h2>
             <Button
               onClick={() => {setIsNewTenderOpen(true); setCreateTenderError(null);}}
@@ -585,74 +948,90 @@ export default function SpaceDetailPage({
               </CardContent>
             </Card>
           ) : (
-            <Accordion type="single" collapsible className="space-y-3">
+            <div className="space-y-3">
               {tenders.map((tender) => (
-                <AccordionItem
-                  key={tender.id}
-                  value={tender.id}
-                  className="border border-border rounded-xl bg-card px-0 overflow-hidden"
-                >
-                  <AccordionTrigger className="px-6 py-5 hover:no-underline hover:bg-muted/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-border">
-                    <div className="flex items-center justify-between w-full pr-4">
-                      <div className="flex flex-col items-start text-left">
-                        <span className="text-lg font-medium text-foreground">
-                          {tender.name}
-                        </span>
-                        <span className="text-sm text-muted-foreground mt-1">
-                          Created {format(new Date(tender.created_at), "MMM d, yyyy")} &middot;{" "}
-                          {tender.documents?.length || 0} document
-                          {(tender.documents?.length || 0) !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-                      <Badge
-                        className={`rounded-lg ml-4 ${getStatusColor(tender.status)}`}
-                      >
-                        {formatStatus(tender.status)}
-                      </Badge>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="px-6 pb-5 pt-4">
-                    {(tender.documents?.length || 0) === 0 ? (
-                      <p className="text-muted-foreground text-sm py-4 text-center">
-                        No documents uploaded yet
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium text-muted-foreground mb-3">
-                          Uploaded Documents
-                        </p>
-                        {tender.documents?.map((doc) => (
-                          <div
-                            key={doc.id}
-                            className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/30"
-                          >
-                            <div className="flex items-center gap-3">
-                              <FileText className="h-5 w-5 text-red-500" />
-                              <span className="text-sm text-foreground">
-                                {doc.filename}
-                              </span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              {formatFileSize(doc.size)}
+                <div key={tender.id} className="flex items-start gap-2"> {/* Wrapper for Accordion and Delete button */}
+                  <Accordion type="single" collapsible className="flex-1">
+                    <AccordionItem
+                      value={tender.id}
+                      className="group border border-border rounded-xl bg-card px-0 overflow-hidden"
+                    >
+                      <AccordionTrigger className="flex-1 text-left px-6 py-5 hover:no-underline hover:bg-muted/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-border">
+                        <div className="flex items-center justify-between w-full">
+                          <div className="flex flex-col items-start text-left">
+                            <span className="text-lg font-medium text-foreground">
+                              {tender.name}
+                            </span>
+                            <span className="text-sm text-muted-foreground mt-1">
+                              Created {format(new Date(tender.created_at), "MMM d, yyyy")} &middot;{" "}
+                              {tender.documents?.length || 0} document
+                              {(tender.documents?.length || 0) !== 1 ? "s" : ""}
                             </span>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="mt-4 pt-4 border-t border-border">
-                      <Link
-                        href={`/space/${spaceId}/tender/${tender.id}`}
-                        className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
-                      >
-                        View Analysis Results
-                        <span aria-hidden="true">&rarr;</span>
-                      </Link>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
+                          <Badge
+                            className={`rounded-lg ml-4 ${getStatusColor(tender.status)}`}
+                          >
+                            {formatStatus(tender.status)}
+                          </Badge>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="px-6 pb-5 pt-4">
+                        {(tender.documents?.length || 0) === 0 ? (
+                          <p className="text-muted-foreground text-sm py-4 text-center">
+                            No documents uploaded yet
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium text-muted-foreground mb-3">
+                              Uploaded Documents
+                            </p>
+                            {tender.documents?.map((doc) => (
+                              <div
+                                key={doc.id}
+                                className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 cursor-pointer"
+                                onClick={() => handleDownloadDocument(tender.id, doc.id, doc.filename)}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <FileText className="h-5 w-5 text-red-500" />
+                                  <span className="text-sm text-foreground">
+                                    {doc.filename}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatFileSize(doc.size)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-4 pt-4 border-t border-border">
+                          <Link
+                            href={`/space/${spaceId}/tender/${tender.id}`}
+                            className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+                          >
+                            View Analysis Results
+                            <span aria-hidden="true">&rarr;</span>
+                          </Link>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDeleteTenderClick(tender.id)}
+                    className={`
+                      shrink-0 text-muted-foreground hover:text-destructive mt-5
+                      ${(currentMemberRole === "OWNER" || currentMemberRole === "ADMIN") 
+                        ? "visible" 
+                        : "invisible pointer-events-none"}
+                    `}
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </Button>
+                </div>
               ))}
-            </Accordion>
-          )}
+            </div>          )}
         </div>
       </main>
 
@@ -667,6 +1046,25 @@ export default function SpaceDetailPage({
 
       <DashboardFooter />
       <ChatbotWidget />
+
+      {/* Delete Tender Confirmation Dialog */}
+      <AlertDialog open={showDeleteTenderConfirm} onOpenChange={setShowDeleteTenderConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to delete this tender?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the
+              tender and all its associated documents and analysis results.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelDeleteTender}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDeleteTender} className="bg-destructive hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
     </ProtectedRoute>
   )

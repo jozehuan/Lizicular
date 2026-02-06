@@ -8,35 +8,47 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { X, Loader2, AlertCircle } from "lucide-react" // Import Loader2 and AlertCircle
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { X, Loader2, AlertCircle, Plus } from "lucide-react" // Import Loader2, AlertCircle, and Plus
+
+interface Collaborator {
+  email: string;
+  role: "ADMIN" | "EDITOR" | "VIEWER";
+}
 
 interface CreateSpaceFormProps {
-  onSubmit: (name: string, description: string, collaborators: string[]) => void // Updated signature
+  onSubmit: (name: string, description: string, collaborators: Collaborator[]) => void
   onCancel: () => void
-  isSubmitting: boolean // New prop
-  error: string | null // New prop
+  isSubmitting: boolean
+  error: string | null
 }
 
 export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: CreateSpaceFormProps) {
   const [spaceName, setSpaceName] = useState("")
-  const [spaceDescription, setSpaceDescription] = useState("") // New state for description
-  const [collaboratorInput, setCollaboratorInput] = useState("")
-  const [collaborators, setCollaborators] = useState<string[]>([])
+  const [spaceDescription, setSpaceDescription] = useState("")
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([])
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && collaboratorInput.trim()) {
-      e.preventDefault()
-      const email = collaboratorInput.trim().toLowerCase()
-      if (email.includes("@") && !collaborators.includes(email)) {
-        setCollaborators([...collaborators, email])
-        setCollaboratorInput("")
-      }
-    }
-  }
+  const AVAILABLE_ROLES: Collaborator["role"][] = ["ADMIN", "EDITOR", "VIEWER"];
 
-  const removeCollaborator = (email: string) => {
-    setCollaborators(collaborators.filter((c) => c !== email))
-  }
+  const handleAddCollaborator = () => {
+    setCollaborators([...collaborators, { email: "", role: "VIEWER" }]);
+  };
+
+  const handleRemoveCollaborator = (index: number) => {
+    setCollaborators(collaborators.filter((_, i) => i !== index));
+  };
+
+  const handleCollaboratorEmailChange = (index: number, email: string) => {
+    const newCollaborators = [...collaborators];
+    newCollaborators[index].email = email;
+    setCollaborators(newCollaborators);
+  };
+
+  const handleCollaboratorRoleChange = (index: number, role: Collaborator["role"]) => {
+    const newCollaborators = [...collaborators];
+    newCollaborators[index].role = role;
+    setCollaborators(newCollaborators);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,50 +86,61 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
               placeholder="Enter a brief description for the space"
               value={spaceDescription}
               onChange={(e) => setSpaceDescription(e.target.value)}
+              maxLength={100}
               className="h-11 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
               disabled={isSubmitting} // Disable when submitting
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="collaborators" className="text-foreground">
-              Collaborators
-              <span className="text-muted-foreground font-normal ml-2 text-sm">
-                (Press Enter to add)
-              </span>
-            </Label>
-            <Input
-              id="collaborators"
-              type="email"
-              placeholder="Enter email address"
-              value={collaboratorInput}
-              onChange={(e) => setCollaboratorInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="h-11 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
-              disabled={isSubmitting} // Disable when submitting
-            />
-            {collaborators.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-3">
-                {collaborators.map((email) => (
-                  <Badge
-                    key={email}
-                    variant="secondary"
-                    className="rounded-lg bg-secondary text-secondary-foreground px-3 py-1.5 text-sm"
-                  >
-                    {email}
-                    <button
-                      type="button"
-                      onClick={() => removeCollaborator(email)}
-                      className="ml-2 hover:text-destructive focus:outline-none"
-                      aria-label={`Remove ${email}`}
-                      disabled={isSubmitting} // Disable when submitting
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
+          <div className="space-y-4">
+            <Label className="text-foreground block">Collaborators</Label>
+            {collaborators.map((collaborator, index) => (
+              <div key={index} className="flex items-center gap-2">
+                <Input
+                  type="email"
+                  placeholder="Collaborator Email"
+                  value={collaborator.email}
+                  onChange={(e) => handleCollaboratorEmailChange(index, e.target.value)}
+                  className="flex-1 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
+                  disabled={isSubmitting}
+                />
+                <Select
+                  value={collaborator.role}
+                  onValueChange={(value: Collaborator["role"]) => handleCollaboratorRoleChange(index, value)}
+                  disabled={isSubmitting}
+                >
+                  <SelectTrigger className="w-[120px] rounded-xl border-border bg-background text-foreground">
+                    <SelectValue placeholder="Select Role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AVAILABLE_ROLES.map((role) => (
+                      <SelectItem key={role} value={role}>
+                        {role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => handleRemoveCollaborator(index)}
+                  disabled={isSubmitting}
+                  className="rounded-xl border-border text-foreground hover:bg-destructive hover:text-destructive-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
-            )}
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleAddCollaborator}
+              disabled={isSubmitting}
+              className="mt-2 rounded-xl border-border text-foreground hover:bg-muted"
+            >
+              <Plus className="mr-2 h-4 w-4" /> Add Collaborator
+            </Button>
           </div>
 
           <div className="flex gap-3 pt-2">

@@ -1,63 +1,14 @@
+"use client"
+
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { ArrowRight, FileText, Users, TrendingUp, Sparkles } from "lucide-react"
+import { AuthForm } from "@/components/auth/auth-form"
+import { FileText, Users, TrendingUp, Sparkles } from "lucide-react"
 
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <span className="text-xl font-semibold text-foreground tracking-tight">
-            Lizicular
-          </span>
-          <div className="flex items-center gap-4">
-            <Link href="/auth">
-              <Button
-                variant="outline"
-                className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent"
-              >
-                Sign In
-              </Button>
-            </Link>
-            <Link href="/auth">
-              <Button className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90">
-                Get Started
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <section className="py-24 px-6">
-        <div className="max-w-3xl mx-auto text-center">
-          <h1 className="text-4xl md:text-5xl font-semibold text-foreground leading-tight text-balance">
-            Tender Management & Automation Made Simple
-          </h1>
-          <p className="mt-6 text-lg text-muted-foreground leading-relaxed max-w-2xl mx-auto text-pretty">
-            Streamline your tender process with intelligent automation. Organize workspaces, 
-            collaborate with teams, and get AI-powered analysis of your documents.
-          </p>
-          <div className="mt-10 flex items-center justify-center gap-4">
-            <Link href="/auth">
-              <Button
-                size="lg"
-                className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 h-12 px-8"
-              >
-                Start Free Trial
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
-            <Link href="/dashboard">
-              <Button
-                size="lg"
-                variant="outline"
-                className="rounded-xl border-border text-foreground hover:bg-muted h-12 px-8 bg-transparent"
-              >
-                View Demo
-              </Button>
-            </Link>
-          </div>
-        </div>
+      <section className="py-10 px-6 flex items-center justify-center">  
+        <AuthForm />
       </section>
 
       <section className="py-20 px-6 border-t border-border">
@@ -114,10 +65,10 @@ export default function HomePage() {
         </div>
       </section>
 
-      <footer className="py-8 px-6 border-t border-border">
+      <footer className="py-8 px-6 border-t border-border font-sans">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <span className="text-sm text-muted-foreground">
-            &copy; 2024 Lizicular. All rights reserved.
+            &copy; 2026 Lizicular. All rights reserved.
           </span>
           <div className="flex items-center gap-6">
             <Link
