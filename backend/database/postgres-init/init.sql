@@ -95,3 +95,16 @@ CREATE INDEX IF NOT EXISTS ix_audit_workspace_created ON audit_logs (workspace_i
 CREATE INDEX IF NOT EXISTS ix_audit_resource ON audit_logs (resource_type, resource_id);
 CREATE INDEX IF NOT EXISTS ix_audit_payload ON audit_logs USING GIN (payload);
 CREATE INDEX IF NOT EXISTS ix_audit_failures ON audit_logs (success, created_at) WHERE success = FALSE;
+
+-- 7. Tabla de Automatismos
+CREATE TABLE IF NOT EXISTS autos (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    url VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT
+);
+
+-- Insertar automatismo por defecto
+INSERT INTO autos (id, url, name, description)
+VALUES ('2cf9e384-b633-5c8c-9488-2f47b6796791', 'https://n8n.staging.nazaries.cloud/webhook-test/7dda4f32-7721-405b-aa6d-8e84ded163ce', 'Default Automation', 'This is a default automation for testing purposes.')
+ON CONFLICT (id) DO NOTHING;
