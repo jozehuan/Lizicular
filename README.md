@@ -86,6 +86,10 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - `PUT /workspaces/{workspace_id}/members/{user_id}`: Actualiza el rol de un miembro (solo OWNER/ADMIN).
 - `DELETE /workspaces/{workspace_id}/members/{user_id}`: Elimina un miembro del workspace (solo OWNER/ADMIN).
 
+### **Automatismos (en `/automations/routes.py`)**
+- `POST /automations/`: Crea un nuevo automatismo.
+
+
 ### **Licitaciones (Tenders) (en `/mongodb/routes.py`)**
 - `POST /tenders`: Crea una nueva licitación (Requiere rol EDITOR).
 - `GET /tenders/workspace/{workspace_id}`: Lista licitaciones de un workspace.
@@ -95,7 +99,12 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 
 ### **Análisis de Licitaciones (en `/mongodb/routes.py`)**
 - `POST /tenders/{tender_id}/analysis`: Añade resultados de análisis a una licitación (Requiere rol EDITOR).
+- `POST /tenders/{tender_id}/generate_analysis`: Inicia la generación de un nuevo análisis de forma asíncrona (Requiere rol EDITOR).
 - `DELETE /tenders/{tender_id}/analysis/{result_id}`: Elimina un análisis específico.
+
+### **WebSockets**
+- `ws /ws/analysis/{analysis_id}`: Conexión WebSocket para recibir actualizaciones en tiempo real sobre el estado y el resultado de un análisis.
+
 
 ### **Utilidad (en `/main.py`)**
 - `GET /`: Health check del sistema.
@@ -106,11 +115,14 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 
 1.  **Base de Datos Contenedorizada:** Configuración de PostgreSQL mediante Docker Compose para un entorno de desarrollo reproducible.
 2.  **Módulo de Autenticación Híbrida:** Implementación completa del sistema de registro y login, soportando tanto credenciales locales como OAuth2, con toda la lógica modularizada en `backend/auth/`.
-3.  **Refactorización de Tipos:** Código optimizado para Python 3.10+ usando el estándar `Tipo | None` y Pydantic v2.
+3.  **Refactorización de Tipos:** Código optimizado para Python 3.11+ usando el estándar `Tipo | None` y Pydantic v2.
 4.  **Infraestructura de Pruebas:** Creación de una suite de tests automáticos con `pytest` y `httpx`, además de colecciones en `Postman` para validación manual del flujo de usuarios.
 5.  **Corrección de Dependencias:** Ajuste de versiones de seguridad (`bcrypt`) para asegurar compatibilidad en Windows y entornos asíncronos.
 6.  **Gestión de Workspaces:** Implementación completa de la creación, gestión y control de acceso (RBAC) para organizar equipos y licitaciones, con toda la lógica modularizada en `backend/workspaces/`.
 7.  **Sistema de Auditoría de Grado Empresarial:** Motor de logs universal con soporte para categorías (Auth, Workspace, Tender, etc.) y utilidades de consulta avanzada, detección de amenazas y exportación para cumplimiento.
+8.  **Generación de Análisis Asíncrono:** Se ha implementado un flujo de generación de análisis asíncrono con notificaciones en tiempo real vía WebSockets. El frontend puede disparar un análisis y, en lugar de esperar, recibe una respuesta inmediata. El estado y el resultado final de la tarea son enviados al frontend a través de un WebSocket, eliminando la necesidad de polling.
+9.  **Gestión de Automatismos:** Se ha añadido una tabla `autos` en PostgreSQL y endpoints en `/automations` para registrar y gestionar los automatismos externos (ej. webhooks de n8n) que pueden ser invocados.
+10. **Modelos de Datos Extensibles:** Los esquemas de Pydantic para los resultados de análisis se han actualizado para soportar estructuras de datos más complejas y anidadas, incluyendo un nuevo JSON `estimacion`.
 
 ---
 **Desarrollado para la automatización eficiente de licitaciones.**

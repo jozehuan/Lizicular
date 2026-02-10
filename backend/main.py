@@ -15,6 +15,7 @@ import json
 from uuid import UUID
 
 from backend.auth.models import Base
+from backend.automations.models import Automation  # Import Automation model
 from backend.auth.schemas import OAuthUserInfo
 from backend.auth.oauth_config import OAuthConfig
 from backend.auth.oauth_utils import OAuthProvider, get_oauth_user
@@ -22,6 +23,8 @@ from backend.auth.database import engine
 from backend.tenders.routes import router as tenders_router
 from backend.workspaces.routes import router as workspaces_router
 from backend.auth.routes import router as auth_router, users_router
+from backend.automations.routes import router as automations_router  # Import automations router
+from backend.automations.websocket.routes import router as websocket_router
 from backend.tenders.tenders_utils import MongoDB
 
 @asynccontextmanager
@@ -75,6 +78,8 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(tenders_router)
 app.include_router(workspaces_router)
+app.include_router(automations_router)
+app.include_router(websocket_router)
 
 
 @app.get(

@@ -133,19 +133,30 @@ class CriterioNoMatematico(BaseModel):
     referencia: str = Field(..., description="Referencia al documento fuente")
     subcriterios: List[Subcriterio] = Field(default_factory=list, description="Lista de subcriterios")
 
+# New models for mathematical criteria
 
-class Variable(BaseModel):
-    """Variable de una fórmula matemática."""
-    simbolo: str = Field(..., description="Símbolo de la variable (ej: 'P', 'Pmin')")
-    detalle: str = Field(..., description="Descripción de la variable")
+class SubSubcriterioMatematico(BaseModel):
+    nombre: str
+    detalle: str
+    puntuacion: float
+    referencia: str
 
+class SubcriterioMatematico(BaseModel):
+    nombre: str
+    detalle: str
+    puntuacion: float
+    referencia: str
+    sub_subcriterios: List[SubSubcriterioMatematico] = Field(default_factory=list)
 
-class Formula(BaseModel):
-    """Fórmula matemática para un criterio."""
-    formula: str = Field(..., description="Fórmula matemática (ej: 'P = 60 * (Pmin / Po)')")
-    detalle_formula: str = Field(..., description="Explicación de la fórmula")
-    variables: List[Variable] = Field(..., description="Lista de variables de la fórmula")
+class VariableMatematica(BaseModel):
+    nombre: str
+    detalle: str
 
+class FormulaMatematica(BaseModel):
+    nombre_formula: str
+    detalle_formula: str
+    referencia: str
+    variables: List[VariableMatematica] = Field(default_factory=list)
 
 class CriterioMatematico(BaseModel):
     """Criterio de evaluación matemático."""
@@ -153,7 +164,72 @@ class CriterioMatematico(BaseModel):
     detalle: str = Field(..., description="Descripción del criterio")
     puntuacion: float = Field(..., ge=0, description="Puntuación del criterio")
     referencia: str = Field(..., description="Referencia al documento fuente")
-    formula: Formula = Field(..., description="Fórmula de cálculo")
+    subcriterios: List[SubcriterioMatematico] = Field(default_factory=list)
+    formulas: List[FormulaMatematica] = Field(default_factory=list)
+
+# New models for estimacion
+
+class SubcriterioJuicioValorEstimacion(BaseModel):
+    nombre: str
+    detalle: str
+    puntuacion: float
+    referencia: str
+
+class CriterioJuicioValorEstimacion(BaseModel):
+    nombre: str
+    detalle: str
+    puntuacion_total: float
+    referencia: str
+    subcriterios: List[SubcriterioJuicioValorEstimacion] = Field(default_factory=list)
+
+class CriteriosJuicioValorEstimacion(BaseModel):
+    puntuacion_total: float
+    criterios: List[CriterioJuicioValorEstimacion] = Field(default_factory=list)
+
+class SubSubcriterioMatematicoEstimacion(BaseModel):
+    nombre: str
+    detalle: str
+    puntuacion: float
+    referencia: str
+
+class SubcriterioMatematicoEstimacion(BaseModel):
+    nombre: str
+    detalle: str
+    puntuacion: float
+    referencia: str
+    sub_subcriterios: List[SubSubcriterioMatematicoEstimacion] = Field(default_factory=list)
+
+class VariableMatematicaEstimacion(BaseModel):
+    nombre: str
+    detalle: str
+    valor: Optional[Any] = None
+
+class FormulaMatematicaEstimacion(BaseModel):
+    nombre_formula: str
+    expression: str
+    referencia: str
+    variables: List[VariableMatematicaEstimacion] = Field(default_factory=list)
+    resultado: Optional[float] = None
+
+class CriterioMatematicoEstimacion(BaseModel):
+    nombre: str
+    detalle: str
+    puntuacion_total: float
+    referencia: str
+    subcriterios: List[SubcriterioMatematicoEstimacion] = Field(default_factory=list)
+    formulas: List[FormulaMatematicaEstimacion] = Field(default_factory=list)
+
+class CriteriosMatematicosEstimacion(BaseModel):
+    puntuacion_total: float
+    criterios: List[CriterioMatematicoEstimacion] = Field(default_factory=list)
+
+class Estimacion(BaseModel):
+    puntuacion_maxima: int
+    criterios_juicio_valor: CriteriosJuicioValorEstimacion
+    criterios_matematicos: CriteriosMatematicosEstimacion
+
+
+
 
 
 class AnalysisData(BaseModel):
@@ -182,6 +258,8 @@ class AnalysisData(BaseModel):
         default_factory=list,
         description="Criterios de evaluación matemáticos"
     )
+    estimacion: Optional[Estimacion] = Field(None, description="Estimación del resultado")
+
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -269,7 +347,7 @@ class AnalysisResult(BaseModel):
     
     error_message: Optional[str] = None
     
-    data: AnalysisData = Field(..., description="Los 5 JSONs del análisis")
+    data: AnalysisData | None = Field(None, description="Los 5 JSONs del análisis")
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -429,3 +507,11 @@ class DocumentUpload(BaseModel):
         if not v or len(v) == 0:
             raise ValueError('tender_id no puede estar vacío')
         return v
+
+class GenerateAnalysisRequest(BaseModel):
+    """Schema for requesting an analysis generation."""
+    automation_id: str = Field(..., description="ID of the automation to use for the analysis.")
+
+class GenerateAnalysisResponse(BaseModel):
+    message: str
+    analysis_id: str

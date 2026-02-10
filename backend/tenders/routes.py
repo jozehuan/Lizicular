@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, UploadFile, File, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Any
@@ -7,18 +7,27 @@ import uuid
 from starlette.responses import StreamingResponse
 import io
 from bson import ObjectId
+import httpx
 
 from backend.auth.database import get_db
 from backend.auth.auth_utils import get_current_active_user
 from backend.auth.audit_utils import log_tender_event, create_audit_log
 from backend.auth.models import AuditAction, AuditCategory
 from backend.workspaces.models import WorkspaceRole, WorkspaceMember
-from backend.tenders.schemas import Tender, TenderCreate, TenderUpdate, AnalysisResult
+from backend.tenders.schemas import (
+    Tender, TenderCreate, TenderUpdate, AnalysisResult, 
+    GenerateAnalysisRequest, GenerateAnalysisResponse, AnalysisStatus
+)
 from backend.tenders.tenders_utils import (
     create_tender, get_tender_by_id, get_tenders_by_workspace,
     update_tender, delete_tender, add_analysis_result_to_tender,
-    delete_analysis_result, MongoDB, delete_document, add_documents_to_existing_tender
+    delete_analysis_result, MongoDB, delete_document, add_documents_to_existing_tender,
+    create_placeholder_analysis, update_analysis_result, get_analysis_by_id
 )
+from backend.automations.models import Automation
+from backend.automations.websocket.connection_manager import ConnectionManager, get_connection_manager
+# from backend.automations.encryption import encrypt_data
+
 
 router = APIRouter(prefix="/tenders", tags=["Tenders"])
 
@@ -442,3 +451,135 @@ async def api_delete_analysis(
     )
     
     return result
+
+async def run_analysis_in_background(
+    tender_id: str,
+    analysis_id: str,
+    automation_url: str,
+    automation_id: str,
+    db: AsyncSession,
+    current_user: Any,
+    request: Request,
+    manager_instance: ConnectionManager,
+):
+    """
+    This function is executed in the background to generate the analysis.
+    """
+    await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.PROCESSING)
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                automation_url,
+                json={"tender_id": tender_id, "analysis_id": analysis_id},
+                timeout=3600.0,
+            )
+            response.raise_for_status()
+
+            # Assuming n8n returns a success status
+            if response.json().get("status") == "success":
+                await update_analysis_result(
+                    MongoDB.database,
+                    tender_id,
+                    analysis_id,
+                    status=AnalysisStatus.COMPLETED,
+                )
+            else:
+                error_message = response.json().get("message", "n8n workflow failed")
+                await update_analysis_result(
+                    MongoDB.database,
+                    tender_id,
+                    analysis_id,
+                    status=AnalysisStatus.FAILED,
+                    error_message=error_message,
+                )
+            
+            # Log audit
+            tender = await get_tender_by_id(MongoDB.database, tender_id)
+            await log_tender_event(
+                db=db,
+                action=AuditAction.TENDER_ANALYZE,
+                tender_id=tender_id,
+                workspace_id=uuid.UUID(tender.workspace_id),
+                user_id=current_user.id,
+                request=request,
+                details=f"Generated analysis with automation",
+                payload={"automation_id": automation_id}
+            )
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            error_message = f"Error from automation service: {e}"
+            await update_analysis_result(
+                MongoDB.database,
+                tender_id,
+                analysis_id,
+                status=AnalysisStatus.FAILED,
+                error_message=error_message,
+            )
+            await manager_instance.send_to_analysis_id(
+                {"status": "FAILED", "error": error_message},
+                analysis_id
+            )
+        else:
+            analysis_result = await get_analysis_by_id(MongoDB.database, tender_id, analysis_id)
+            await manager_instance.send_to_analysis_id(
+                {"status": "COMPLETED", "result": analysis_result.model_dump()},
+                analysis_id
+            )
+
+@router.post(
+    "/{tender_id}/generate_analysis",
+    summary="Generate analysis for a tender",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=GenerateAnalysisResponse,
+    tags=["Analysis"]
+)
+async def api_generate_analysis(
+    tender_id: str,
+    analysis_request: GenerateAnalysisRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Any = Depends(get_current_active_user),
+    manager_instance: ConnectionManager = Depends(get_connection_manager)
+):
+    """Generates an analysis for a tender by calling an automation service."""
+    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    if not tender:
+        raise HTTPException(status_code=404, detail="Tender not found")
+
+    if not await check_workspace_permission(tender.workspace_id, current_user.id, db, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Permission denied (Editor role required)")
+
+    automation = await db.get(Automation, uuid.UUID(analysis_request.automation_id))
+    if not automation:
+        raise HTTPException(status_code=404, detail="Automation not found")
+
+    placeholder = await create_placeholder_analysis(
+        MongoDB.database,
+        tender_id,
+        analysis_request.automation_id,
+        str(current_user.id)
+    )
+
+    if not placeholder:
+        raise HTTPException(status_code=500, detail="Could not create analysis placeholder")
+
+    background_tasks.add_task(
+        run_analysis_in_background,
+        tender_id,
+        placeholder.id,
+        automation.url,
+        str(automation.id),
+        db,
+        current_user,
+        request,
+        manager_instance,
+    )
+    
+    return GenerateAnalysisResponse(
+        message="Analysis generation started.",
+        analysis_id=placeholder.id
+    )
+
+
+

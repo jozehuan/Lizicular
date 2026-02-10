@@ -12,7 +12,7 @@ from fastapi import HTTPException, status, UploadFile # Import UploadFile
 from .schemas import (
     Tender, TenderCreate, TenderUpdate,
     TenderDocument, AnalysisResult,
-    TenderResponse
+    TenderResponse, AnalysisStatus
 )
 
 # ============================================================================
@@ -587,36 +587,6 @@ async def add_analysis_result_to_tender(
     )
 
 
-async def get_analysis_result_by_id(
-    db: Any,
-    tender_id: str,
-    result_id: str
-) -> Optional[AnalysisResult]:
-    """
-    Obtiene un resultado de análisis específico.
-    
-    Args:
-        db: Base de datos MongoDB
-        tender_id: ID de la licitación
-        result_id: ID del resultado
-        
-    Returns:
-        Resultado si existe, None si no
-    """
-    tender = await db.tenders.find_one(
-        {
-            "_id": ObjectId(tender_id),
-            "analysis_results.id": result_id
-        },
-        {"analysis_results.$": 1}
-    )
-    
-    if tender and "analysis_results" in tender and len(tender["analysis_results"]) > 0:
-        return AnalysisResult(**tender["analysis_results"][0])
-    
-    return None
-
-
 async def delete_analysis_result(
     db: Any,
     tender_id: str,
@@ -647,6 +617,152 @@ async def delete_analysis_result(
         return Tender(**result)
     
     return None
+
+async def create_placeholder_analysis(
+    db: Any,
+    tender_id: str,
+    automation_id: str,
+    user_id: str
+) -> Optional[AnalysisResult]:
+    """
+    Creates a placeholder analysis result in a tender.
+    
+    Args:
+        db: MongoDB database
+        tender_id: ID of the tender
+        automation_id: ID of the automation
+        user_id: ID of the user
+        
+    Returns:
+        The created analysis result
+    """
+    from backend.automations.models import Automation
+    from backend.auth.database import get_db
+    from sqlalchemy.ext.asyncio import AsyncSession
+    import uuid
+
+    # This is not ideal, but we need to get the automation name
+    # A better solution would be to pass the automation name to this function
+    async def get_automation_name(db_session: AsyncSession, automation_uuid: uuid.UUID) -> str:
+        automation = await db_session.get(Automation, automation_uuid)
+        return automation.name if automation else "Unknown"
+
+    db_session_gen = get_db()
+    db_session = await db_session_gen.__anext__()
+    try:
+        automation_name = await get_automation_name(db_session, uuid.UUID(automation_id))
+    finally:
+        await db_session.close()
+
+    analysis_result = AnalysisResult(
+        id=str(uuid.uuid4()),
+        name=f"Analysis in progress...",
+        procedure_id=automation_id,
+        procedure_name=automation_name,
+        created_by=user_id,
+        status=AnalysisStatus.PENDING,
+        data=None,
+    )
+    
+    result = await db.tenders.find_one_and_update(
+        {"_id": ObjectId(tender_id)},
+        {
+            "$push": {"analysis_results": analysis_result.model_dump()},
+            "$set": {"updated_at": datetime.utcnow()}
+        },
+        return_document=True
+    )
+    
+    if result:
+        return analysis_result
+    
+    return None
+
+async def update_analysis_result(
+    db: Any,
+    tender_id: str,
+    analysis_id: str,
+    status: str,
+    data: Optional[Dict[str, Any]] = None,
+    error_message: Optional[str] = None
+) -> None:
+    """
+    Updates an analysis result in a tender.
+    
+    Args:
+        db: MongoDB database
+        tender_id: ID of the tender
+        analysis_id: ID of the analysis result
+        status: The new status
+        data: The analysis data
+        error_message: An error message if the analysis failed
+    """
+    update_fields = {
+        "analysis_results.$.status": status,
+        "analysis_results.$.updated_at": datetime.utcnow(),
+    }
+    if data:
+        update_fields["analysis_results.$.data"] = data
+    if error_message:
+        update_fields["analysis_results.$.error_message"] = error_message
+    
+    await db.tenders.update_one(
+        {"_id": ObjectId(tender_id), "analysis_results.id": analysis_id},
+        {"$set": update_fields}
+    )
+
+async def get_analysis_by_id(
+    db: Any,
+    tender_id: str,
+    analysis_id: str
+) -> Optional[AnalysisResult]:
+    """
+    Gets an analysis result by its ID.
+    
+    Args:
+        db: MongoDB database
+        tender_id: ID of the tender
+        analysis_id: ID of the analysis result
+        
+    Returns:
+        The analysis result if found, otherwise None
+    """
+    tender = await db.tenders.find_one(
+        {"_id": ObjectId(tender_id), "analysis_results.id": analysis_id},
+        {"analysis_results.$": 1}
+    )
+    
+    if tender and "analysis_results" in tender:
+        return AnalysisResult(**tender["analysis_results"][0])
+    
+    return None
+
+    """
+    Updates an analysis result in a tender.
+    
+    Args:
+        db: MongoDB database
+        tender_id: ID of the tender
+        analysis_id: ID of the analysis result
+        status: The new status
+        data: The analysis data
+        error_message: An error message if the analysis failed
+    """
+    update_fields = {
+        "analysis_results.$.status": status,
+        "analysis_results.$.updated_at": datetime.utcnow(),
+    }
+    if data:
+        update_fields["analysis_results.$.data"] = data
+    if error_message:
+        update_fields["analysis_results.$.error_message"] = error_message
+    
+    await db.tenders.update_one(
+        {"_id": ObjectId(tender_id), "analysis_results.id": analysis_id},
+        {"$set": update_fields}
+    )
+
+
 
 
 # ============================================================================

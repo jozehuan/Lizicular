@@ -32,6 +32,11 @@ TestingSessionLocal = async_sessionmaker(
     expire_on_commit=False
 )
 
+@pytest.fixture(scope="session")
+def test_app():
+    return app
+
+
 # --- Fixtures ---
 
 @pytest_asyncio.fixture(autouse=True)
