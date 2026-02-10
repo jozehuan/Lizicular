@@ -115,7 +115,7 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 
 1.  **Base de Datos Contenedorizada:** Configuración de PostgreSQL mediante Docker Compose para un entorno de desarrollo reproducible.
 2.  **Módulo de Autenticación Híbrida:** Implementación completa del sistema de registro y login, soportando tanto credenciales locales como OAuth2, con toda la lógica modularizada en `backend/auth/`.
-3.  **Refactorización de Tipos:** Código optimizado para Python 3.10+ usando el estándar `Tipo | None` y Pydantic v2.
+3.  **Refactorización de Tipos:** Código optimizado para Python 3.11+ usando el estándar `Tipo | None` y Pydantic v2.
 4.  **Infraestructura de Pruebas:** Creación de una suite de tests automáticos con `pytest` y `httpx`, además de colecciones en `Postman` para validación manual del flujo de usuarios.
 5.  **Corrección de Dependencias:** Ajuste de versiones de seguridad (`bcrypt`) para asegurar compatibilidad en Windows y entornos asíncronos.
 6.  **Gestión de Workspaces:** Implementación completa de la creación, gestión y control de acceso (RBAC) para organizar equipos y licitaciones, con toda la lógica modularizada en `backend/workspaces/`.

@@ -39,6 +39,7 @@ class User(Base):
     owned_workspaces = relationship("Workspace",back_populates="owner",cascade="all, delete-orphan",passive_deletes=True)
     workspace_memberships = relationship("WorkspaceMember",back_populates="user",cascade="all, delete-orphan",passive_deletes=True)
     audit_logs = relationship("AuditLog",back_populates="user",cascade="all, delete-orphan",passive_deletes=True)
+    automations = relationship("Automation", back_populates="owner", cascade="all, delete-orphan", passive_deletes=True)
 
     __table_args__ = (Index('ix_users_email_active', 'email', 'is_active'),
                       Index('ix_users_oauth_provider_id', 'oauth_provider', 'oauth_id'))

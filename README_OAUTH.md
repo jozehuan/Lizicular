@@ -69,6 +69,8 @@ docker-compose up -d
 
 Esto levantará una instancia de PostgreSQL en el puerto 5432 con las credenciales por defecto (`postgres`/`postgres`).
 
+> ⚠️ Advertencia: Estas credenciales son solo para desarrollo local. Nunca uses credenciales por defecto en producción. Se recomienda encarecidamente sobrescribir estas credenciales usando variables de entorno o un sistema de gestión de secretos seguro, y utilizar contraseñas robustas y rotadas en entornos de producción.
+
 #### Opción B: Instalación Local
 
 ```sql

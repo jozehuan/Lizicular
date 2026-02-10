@@ -101,10 +101,17 @@ CREATE TABLE IF NOT EXISTS autos (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     url VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
-    description TEXT
+    description TEXT,
+    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Insertar automatismo por defecto
-INSERT INTO autos (id, url, name, description)
-VALUES ('2cf9e384-b633-5c8c-9488-2f47b6796791', 'https://n8n.staging.nazaries.cloud/webhook-test/7dda4f32-7721-405b-aa6d-8e84ded163ce', 'Default Automation', 'This is a default automation for testing purposes.')
+-- Nota: La columna owner_id es NOT NULL, por lo que necesitamos un usuario existente.
+-- Insertamos un usuario por defecto si no existe.
+INSERT INTO users (id, email, hashed_password, full_name, is_active)
+VALUES ('00000000-0000-0000-0000-000000000001', 'default_owner@example.com', 'hashed_password_placeholder', 'Default Owner', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO autos (id, url, name, description, owner_id)
+VALUES ('2cf9e384-b633-5c8c-9488-2f47b6796791', 'https://n8n.staging.nazaries.cloud/webhook-test/7dda4f32-7721-405b-aa6d-8e84ded163ce', 'Default Automation', 'This is a default automation for testing purposes.', '00000000-0000-0000-0000-000000000001')
 ON CONFLICT (id) DO NOTHING;

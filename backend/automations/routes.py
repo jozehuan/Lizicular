@@ -26,6 +26,7 @@ async def create_automation(
         name=automation.name,
         url=automation.url,
         description=automation.description,
+        owner_id=current_user["id"],
     )
     db.add(new_automation)
     await db.commit()

@@ -19,14 +19,28 @@ class ConnectionManager:
         await websocket.send_text(message)
 
     async def broadcast(self, message: str):
+        stale_connections = []
         for connection_list in self.active_connections.values():
             for connection in connection_list:
-                await connection.send_text(message)
+                try:
+                    await connection.send_text(message)
+                except Exception:
+                    stale_connections.append(connection)
+        # Optionally clean up stale connections here
 
     async def send_to_analysis_id(self, message: dict, analysis_id: str):
         if analysis_id in self.active_connections:
-            for connection in self.active_connections[analysis_id]:
-                await connection.send_json(message)
+            for connection in list(self.active_connections[analysis_id]):
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    self.active_connections[analysis_id].remove(connection)
+
+# Module-level singleton instance
+_manager: ConnectionManager | None = None
 
 def get_connection_manager() -> ConnectionManager:
-    return ConnectionManager()
+    global _manager
+    if _manager is None:
+        _manager = ConnectionManager()
+    return _manager

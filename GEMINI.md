@@ -1,7 +1,7 @@
 # Contexto del Proyecto: Lizicular
 
 ## Objetivo
-Esta aplicación es un proyecto para el desarrollo de una aplicación web llamada "Lizicular", donde se encarge de aplicar procesos de automatización sobre licitaciones.
+Esta aplicación es un proyecto para el desarrollo de una aplicación web llamada "Lizicular", que se encarga de aplicar procesos de automatización sobre licitaciones.
 
 ## Stack Tecnológico
 - **BackEnd:** Python 3.10+ - FastAPI
@@ -83,4 +83,7 @@ Se han realizado una serie de correcciones y mejoras en el frontend para estabil
     - Corregido el flujo de logout para que siempre redirija a la página principal (`/`) de forma predecible, solucionando una condición de carrera que a veces redirigía a `/auth`.
 
 #### Backend (`FastAPI`)
-- No se han realizado cambios en el código del backend. El enfoque ha sido alinear el frontend con la API ya existente.
+- Se ha añadido el módulo `/automations` con soporte para WebSockets, permitiendo notificaciones en tiempo real.
+- Se ha creado una tabla `autos` en PostgreSQL para almacenar información de automatismos (webhooks de n8n).
+- Implementado flujo de generación de análisis asíncrono con notificaciones WebSocket.
+- Los esquemas Pydantic ahora incluyen el campo `estimacion` para estructuras de resultados más complejas.
