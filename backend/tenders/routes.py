@@ -457,13 +457,14 @@ async def run_analysis_in_background(
     analysis_id: str,
     automation_url: str,
     automation_id: str,
-    db: AsyncSession,
-    current_user: Any,
-    request: Request,
+    user_id: str,
+    workspace_id: str,
+    client_ip: str | None,
     manager_instance: ConnectionManager,
 ):
     """
     This function is executed in the background to generate the analysis.
+    It creates its own database session for audit logging.
     """
     await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.PROCESSING)
     
@@ -474,38 +475,38 @@ async def run_analysis_in_background(
                 json={"tender_id": tender_id, "analysis_id": analysis_id},
                 timeout=3600.0,
             )
+            # Raise an exception for non-2xx status codes.
             response.raise_for_status()
 
-            # Assuming n8n returns a success status
-            if response.json().get("status") == "success":
-                await update_analysis_result(
-                    MongoDB.database,
-                    tender_id,
-                    analysis_id,
-                    status=AnalysisStatus.COMPLETED,
-                )
-            else:
-                error_message = response.json().get("message", "n8n workflow failed")
-                await update_analysis_result(
-                    MongoDB.database,
-                    tender_id,
-                    analysis_id,
-                    status=AnalysisStatus.FAILED,
-                    error_message=error_message,
-                )
-            
-            # Log audit
-            tender = await get_tender_by_id(MongoDB.database, tender_id)
-            await log_tender_event(
-                db=db,
-                action=AuditAction.TENDER_ANALYZE,
-                tender_id=tender_id,
-                workspace_id=uuid.UUID(tender.workspace_id),
-                user_id=current_user.id,
-                request=request,
-                details=f"Generated analysis with automation",
-                payload={"automation_id": automation_id}
+            # If we get here, the HTTP request was successful.
+            # The entire response body is considered the analysis result data.
+            try:
+                analysis_data = response.json()
+            except Exception:
+                # Handle cases where the response is not valid JSON, but status was 2xx
+                analysis_data = {"raw_response": response.text}
+
+            await update_analysis_result(
+                MongoDB.database,
+                tender_id,
+                analysis_id,
+                status=AnalysisStatus.COMPLETED,
+                data=analysis_data
             )
+            
+            # Create a new DB session for audit logging
+            async for db in get_db():
+                await log_tender_event(
+                    db=db,
+                    action=AuditAction.TENDER_ANALYZE,
+                    tender_id=tender_id,
+                    workspace_id=uuid.UUID(workspace_id),
+                    user_id=uuid.UUID(user_id),
+                    ip_address=client_ip,
+                    details="Generated analysis with automation",
+                    payload={"automation_id": automation_id}
+                )
+
         except (httpx.HTTPStatusError, httpx.RequestError) as e:
             error_message = f"Error from automation service: {e}"
             await update_analysis_result(
@@ -519,7 +520,22 @@ async def run_analysis_in_background(
                 {"status": "FAILED", "error": error_message},
                 analysis_id
             )
+        except Exception as e:
+            # Catch any other unexpected errors during the process
+            error_message = f"An unexpected error occurred in background task: {e}"
+            await update_analysis_result(
+                MongoDB.database,
+                tender_id,
+                analysis_id,
+                status=AnalysisStatus.FAILED,
+                error_message=error_message,
+            )
+            await manager_instance.send_to_analysis_id(
+                {"status": "FAILED", "error": error_message},
+                analysis_id
+            )
         else:
+            # This block runs only if the try block completes with no exceptions.
             analysis_result = await get_analysis_by_id(MongoDB.database, tender_id, analysis_id)
             await manager_instance.send_to_analysis_id(
                 {"status": "COMPLETED", "result": analysis_result.model_dump()},
@@ -564,16 +580,17 @@ async def api_generate_analysis(
     if not placeholder:
         raise HTTPException(status_code=500, detail="Could not create analysis placeholder")
 
+    # Pass primitive types to the background task, not request-scoped objects
     background_tasks.add_task(
         run_analysis_in_background,
-        tender_id,
-        placeholder.id,
-        automation.url,
-        str(automation.id),
-        db,
-        current_user,
-        request,
-        manager_instance,
+        tender_id=tender_id,
+        analysis_id=placeholder.id,
+        automation_url=automation.url,
+        automation_id=str(automation.id),
+        user_id=str(current_user.id),
+        workspace_id=tender.workspace_id,
+        client_ip=request.client.host if request.client else None,
+        manager_instance=manager_instance,
     )
     
     return GenerateAnalysisResponse(

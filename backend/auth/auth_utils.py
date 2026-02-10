@@ -3,6 +3,7 @@ Authentication utilities for password hashing and JWT token management.
 """
 from __future__ import annotations
 from datetime import datetime, timedelta
+from typing import Any
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Response
@@ -24,10 +25,16 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 # JWT Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("La variable de entorno SECRET_KEY debe estar configurada con una clave segura.")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+# Cookie settings
+SECURE_COOKIES = os.getenv("SECURE_COOKIES", "false").lower() == "true"
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -95,6 +102,34 @@ async def add_token_to_blacklist(redis_client: Any, jti: str, expire_seconds: in
 async def is_token_blacklisted(redis_client: Any, jti: str) -> bool:
     """Comprueba si un token JTI está en la lista negra."""
     return await redis_client.get(f"blacklist:{jti}") is not None
+
+
+OAUTH_STATE_EXPIRE_SECONDS = 600  # 10 minutos
+
+
+async def store_oauth_state(redis_client: Any, state: str, provider: str):
+    """Guarda el estado de OAuth en Redis con una expiración."""
+    await redis_client.setex(
+        f"oauth_state:{state}", OAUTH_STATE_EXPIRE_SECONDS, provider
+    )
+
+
+async def consume_oauth_state(redis_client: Any, state: str) -> str | None:
+    """
+    Verifica y consume (elimina) el estado de OAuth de Redis.
+    Devuelve el proveedor si el estado es válido, si no, None.
+    """
+    key = f"oauth_state:{state}"
+    
+    # Usamos una transacción de Redis (pipeline) para garantizar la atomicidad.
+    async with redis_client.pipeline(transaction=True) as pipe:
+        pipe.get(key)
+        pipe.delete(key)
+        results = await pipe.execute()
+    
+    # El resultado de GET es el primer elemento de la lista de resultados
+    provider = results[0]
+    return provider
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -188,12 +223,6 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
     
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user account"
-        )
-    
     return user
 
 async def get_current_active_user(
@@ -213,7 +242,7 @@ async def get_current_active_user(
     """
     if not current_user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user"
         )
     return current_user
@@ -228,5 +257,6 @@ def set_refresh_token_cookie(response: Response, refresh_token: str):
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         expires=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         samesite="lax",
-        secure=False,  # Cambiar a True en producción con HTTPS
+        secure=SECURE_COOKIES,
+        path="/",
     )

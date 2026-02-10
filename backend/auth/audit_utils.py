@@ -7,7 +7,7 @@ from uuid import UUID
 from datetime import datetime, timedelta
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, delete
 
 from .models import AuditLog, AuditCategory, AuditAction, User
 import json
@@ -531,11 +531,12 @@ async def cleanup_old_logs(
         )
     )
     count = result.scalar()
-    
-    # Eliminar logs antiguos
-    await db.execute(
-        select(AuditLog).where(AuditLog.created_at < cutoff_date)
-    )
-    await db.commit()
+
+    if count > 0:
+        # Eliminar logs antiguos
+        await db.execute(
+            delete(AuditLog).where(AuditLog.created_at < cutoff_date)
+        )
+        await db.commit()
     
     return count
