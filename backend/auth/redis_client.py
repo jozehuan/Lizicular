@@ -11,6 +11,16 @@ async def get_redis():
     finally:
         await client.aclose()
 
-def get_redis_client():
+class RedisClientManager:
     """Para uso fuera de dependencias de FastAPI (ej. inicialización)."""
-    return redis.from_url(REDIS_URL, decode_responses=True)
+    
+    def __init__(self):
+        self.client = None
+    
+    async def __aenter__(self):
+        self.client = redis.from_url(REDIS_URL, decode_responses=True)
+        return self.client
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.client:
+            await self.client.aclose()

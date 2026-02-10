@@ -23,6 +23,8 @@ from backend.auth.auth_utils import (
     get_current_active_user,
     get_user_by_email,
     set_refresh_token_cookie,
+    store_oauth_state,
+    consume_oauth_state,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
     SECRET_KEY,
@@ -37,20 +39,6 @@ from backend.auth.redis_client import get_redis
 from backend.auth.audit_utils import log_auth_event, create_audit_log
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-# Store for OAuth state tokens (usar Redis en producción)
-oauth_states = {}
-
-
-def clean_old_states():
-    """Remove OAuth states older than 10 minutes."""
-    current_time = time.time()
-    expired = [
-        state for state, data in oauth_states.items()
-        if current_time - data.get("timestamp", 0) > 600
-    ]
-    for state in expired:
-        oauth_states.pop(state, None)
 
 
 async def get_or_create_oauth_user(
@@ -83,23 +71,33 @@ async def get_or_create_oauth_user(
         await db.commit()
         await db.refresh(user)
         return user
-    
-    # Check if user exists with same email (linking accounts)
-    result = await db.execute(
-        select(User).where(User.email == oauth_info.email)
-    )
-    user = result.scalar_one_or_none()
-    
-    if user:
-        # Link OAuth account to existing user
-        user.oauth_provider = oauth_info.oauth_provider
-        user.oauth_id = oauth_info.oauth_id
-        user.profile_picture = oauth_info.profile_picture
-        await db.commit()
-        await db.refresh(user)
-        return user
-    
-    # Create new user
+
+    # Security Check: Prevent account takeover.
+    # Check if a user with this email already exists.
+    existing_user = await get_user_by_email(db, oauth_info.email)
+
+    if existing_user:
+        # If the user exists and is a password-based user or uses a different OAuth provider,
+        # raise a conflict error. Do NOT link the accounts automatically.
+        if existing_user.hashed_password or (
+            existing_user.oauth_provider and existing_user.oauth_provider != oauth_info.oauth_provider
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"An account already exists with this email. Please log in with your password or with {existing_user.oauth_provider.capitalize()} to continue."
+            )
+        else:
+            # This case is for when a user record was created but is incomplete (e.g. no password and no oauth).
+            # We can safely link it.
+            existing_user.oauth_provider = oauth_info.oauth_provider
+            existing_user.oauth_id = oauth_info.oauth_id
+            existing_user.full_name = oauth_info.full_name
+            existing_user.profile_picture = oauth_info.profile_picture
+            await db.commit()
+            await db.refresh(existing_user)
+            return existing_user
+
+    # Create new user if no account exists with this email
     new_user = User(
         email=oauth_info.email,
         full_name=oauth_info.full_name,
@@ -242,7 +240,12 @@ async def login_json(
 
 
 @router.get("/oauth/{provider}/login", summary="Initiate OAuth login", tags=["OAuth2"])
-async def oauth_login(provider: str, request: Request, db: Any = Depends(get_db)):
+async def oauth_login(
+    provider: str,
+    request: Request,
+    db: Any = Depends(get_db),
+    redis: Any = Depends(get_redis)
+):
     if provider not in OAuthConfig.get_enabled_providers():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -257,15 +260,8 @@ async def oauth_login(provider: str, request: Request, db: Any = Depends(get_db)
         details=f"Initiating OAuth login with {provider}"
     )
     
-    # Limpiar estados antiguos
-    clean_old_states()
-    
-    # Generar nuevo estado
     state = secrets.token_urlsafe(32)
-    oauth_states[state] = {
-        "provider": provider,
-        "timestamp": time.time()
-    }
+    await store_oauth_state(redis, state, provider)
     
     oauth = OAuthProvider(provider)
     auth_url = oauth.get_authorization_url(state)
@@ -278,27 +274,28 @@ async def oauth_callback(
     state: str,
     request: Request,
     response: Response,
-    db: Any = Depends(get_db)
+    db: Any = Depends(get_db),
+    redis: Any = Depends(get_redis)
 ):
-    if state not in oauth_states:
+    stored_provider = await consume_oauth_state(redis, state)
+    
+    if not stored_provider:
         await log_auth_event(
             db=db,
             action=AuditAction.LOGIN_FAILED,
             success=False,
             request=request,
-            details=f"Invalid OAuth state for {provider}"
+            details=f"Invalid or expired OAuth state for {provider}"
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid state token"
+            detail="Invalid or expired state token. Please try logging in again."
         )
     
-    state_data = oauth_states.pop(state)
-    
-    if state_data["provider"] != provider:
+    if stored_provider != provider:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider mismatch"
+            detail="Provider mismatch. State is for a different provider."
         )
     
     try:
@@ -313,7 +310,7 @@ async def oauth_callback(
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to authenticate with {provider}: {str(e)}"
+            detail=f"Failed to authenticate with {provider}. Please try again."
         )
     
     user = await get_or_create_oauth_user(db, oauth_info)

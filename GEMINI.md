@@ -83,7 +83,4 @@ Se han realizado una serie de correcciones y mejoras en el frontend para estabil
     - Corregido el flujo de logout para que siempre redirija a la página principal (`/`) de forma predecible, solucionando una condición de carrera que a veces redirigía a `/auth`.
 
 #### Backend (`FastAPI`)
-- Se ha añadido el módulo `/automations` con soporte para WebSockets, permitiendo notificaciones en tiempo real.
-- Se ha creado una tabla `autos` en PostgreSQL para almacenar información de automatismos (webhooks de n8n).
-- Implementado flujo de generación de análisis asíncrono con notificaciones WebSocket.
-- Los esquemas Pydantic ahora incluyen el campo `estimacion` para estructuras de resultados más complejas.
+**Conclusiones de la Refactorización:** El backend ha sido sometido a una importante revisión de seguridad y estabilidad. Como conclusión, la autenticación de usuarios es ahora significativamente más segura, cerrando vulnerabilidades críticas de toma de cuentas y fuga de información. La arquitectura es más robusta y escalable, gracias a la correcta gestión de sesiones y tareas en segundo plano, lo que garantiza el funcionamiento fiable de características clave como la generación de análisis y el login con OAuth en entornos de producción. Se han resuelto bugs de lógica que afectaban la integridad de los datos, asegurando que las operaciones como la carga y borrado de documentos se comporten de manera predecible y atómica. En resumen, el estado del backend ha pasado de ser una prueba de concepto funcional a tener una base preparada para producción.

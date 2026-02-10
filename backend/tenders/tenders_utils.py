@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from bson import ObjectId, Binary # Import Binary
+from bson.errors import InvalidId
 from pymongo.errors import DuplicateKeyError
 from fastapi import HTTPException, status, UploadFile # Import UploadFile
 
@@ -141,77 +142,6 @@ async def create_tender(
         )
 
 
-async def add_documents_to_existing_tender(
-    db: Any,
-    tender_id: str,
-    files: List[UploadFile]
-) -> Optional[Tender]:
-    """
-    Añade documentos a una licitación existente.
-    
-    Args:
-        db: Base de datos MongoDB
-        tender_id: ID de la licitación
-        files: Lista de archivos a subir
-        
-    Returns:
-        Licitación actualizada con los nuevos documentos.
-        
-    Raises:
-        HTTPException 404: Si la licitación no existe.
-        HTTPException 400: Si se excede el límite de documentos (por ejemplo, 5).
-    """
-    tender = await get_tender_by_id(db, tender_id)
-    if not tender:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Licitación no encontrada"
-        )
-
-    # Check document limit (e.g., max 5 documents total)
-    if len(tender.documents) + len(files) > 5:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se pueden agregar más de 5 documentos a una licitación."
-        )
-
-    uploaded_files_info = []
-    for file in files:
-        file_content = await file.read()
-        file_document = {
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "size": len(file_content),
-            "upload_date": datetime.utcnow(),
-            "data": Binary(file_content) # Store file content as binary
-        }
-        # Insert file into a separate 'tender_files' collection
-        file_result = await db.tender_files.insert_one(file_document)
-        
-        uploaded_files_info.append(TenderDocument(
-            id=str(file_result.inserted_id),
-            filename=file.filename,
-            content_type=file.content_type,
-            size=len(file_content),
-            extraction_status="pending" # Default status
-        ).model_dump())
-
-    result = await db.tenders.find_one_and_update(
-        {"_id": ObjectId(tender_id)},
-        {
-            "$push": {"documents": {"$each": uploaded_files_info}}, # Use $each for multiple documents
-            "$set": {"updated_at": datetime.utcnow()}
-        },
-        return_document=True
-    )
-
-    if result:
-        result["id"] = str(result["_id"])
-        return Tender(**result)
-    
-    return None # Should not happen if tender was found initially
-
-
 async def get_tender_by_id(
     db: Any,
     tender_id: str
@@ -235,7 +165,7 @@ async def get_tender_by_id(
         
         return None
         
-    except Exception:
+    except InvalidId:
         return None
 
 
@@ -370,22 +300,27 @@ async def delete_tenders_by_workspace(
     workspace_id: str
 ) -> None:
     """
-    Elimina todas las licitaciones y sus documentos asociados para un workspace.
+    Elimina todas las licitaciones y sus documentos asociados para un workspace
+    de forma eficiente y escalable usando una pipeline de agregación.
     
     Args:
         db: Base de datos MongoDB
         workspace_id: UUID del workspace
     """
-    # 1. Encontrar todas las licitaciones en el workspace
-    tenders_to_delete = await get_tenders_by_workspace(db, workspace_id)
+    # 1. Usar una pipeline de agregación para obtener todos los IDs de documentos
+    #    de forma eficiente sin cargar las licitaciones en memoria.
+    pipeline = [
+        {"$match": {"workspace_id": workspace_id}},
+        {"$unwind": "$documents"},
+        {"$project": {"_id": 0, "doc_id": "$documents.id"}}
+    ]
+    cursor = db.tenders.aggregate(pipeline)
     
-    # 2. Eliminar documentos asociados (si están en una colección separada como tender_files)
-    #    Asumimos que los documentos están en db.tender_files y se referencian por su 'id' en tender.documents
-    document_ids_to_delete = []
-    for tender in tenders_to_delete:
-        for doc in tender.documents:
-            document_ids_to_delete.append(ObjectId(doc.id))
+    document_ids_to_delete = [
+        ObjectId(doc["doc_id"]) async for doc in cursor if "doc_id" in doc
+    ]
             
+    # 2. Eliminar todos los documentos asociados de la colección 'tender_files'
     if document_ids_to_delete:
         await db.tender_files.delete_many({"_id": {"$in": document_ids_to_delete}})
         
@@ -419,9 +354,9 @@ async def add_documents_to_existing_tender(
     db: Any,
     tender_id: str,
     files: List[UploadFile]
-) -> Optional[Tender]:
+) -> Tender:
     """
-    Añade documentos a una licitación existente.
+    Añade documentos a una licitación existente de forma atómica para evitar condiciones de carrera.
     
     Args:
         db: Base de datos MongoDB
@@ -432,58 +367,84 @@ async def add_documents_to_existing_tender(
         Licitación actualizada con los nuevos documentos.
         
     Raises:
-        HTTPException 404: Si la licitación no existe.
-        HTTPException 400: Si se excede el límite de documentos (por ejemplo, 5).
+        HTTPException 400: Si se excede el límite de 5 documentos.
     """
-    tender = await get_tender_by_id(db, tender_id)
-    if not tender:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Licitación no encontrada"
-        )
-
-    # Check document limit (e.g., max 5 documents total)
-    if len(tender.documents) + len(files) > 5:
+    if not files:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se pueden agregar más de 5 documentos a una licitación."
+            detail="No se proporcionaron archivos para agregar."
         )
 
+    # 1. Subir archivos y preparar metadatos
     uploaded_files_info = []
-    for file in files:
-        file_content = await file.read()
-        file_document = {
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "size": len(file_content),
-            "upload_date": datetime.utcnow(),
-            "data": Binary(file_content) # Store file content as binary
-        }
-        # Insert file into a separate 'tender_files' collection
-        file_result = await db.tender_files.insert_one(file_document)
-        
-        uploaded_files_info.append(TenderDocument(
-            id=str(file_result.inserted_id),
-            filename=file.filename,
-            content_type=file.content_type,
-            size=len(file_content),
-            extraction_status="pending" # Default status
-        ).model_dump())
+    inserted_file_ids = []
+    try:
+        for file in files:
+            file_content = await file.read()
+            file_document = {
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "size": len(file_content),
+                "upload_date": datetime.utcnow(),
+                "data": Binary(file_content)
+            }
+            file_result = await db.tender_files.insert_one(file_document)
+            inserted_file_ids.append(file_result.inserted_id)
+            
+            uploaded_files_info.append(TenderDocument(
+                id=str(file_result.inserted_id),
+                filename=file.filename,
+                content_type=file.content_type,
+                size=len(file_content),
+                extraction_status="pending"
+            ).model_dump())
+    except Exception as e:
+        # Si falla la subida de archivos, no continuamos
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al procesar los archivos: {e}"
+        )
+
+    # 2. Realizar la actualización atómica
+    atomic_filter = {
+        "_id": ObjectId(tender_id),
+        "$expr": {"$lte": [{"$add": [{"$size": "$documents"}, len(files)]}, 5]}
+    }
+    
+    update_operation = {
+        "$push": {"documents": {"$each": uploaded_files_info}},
+        "$set": {"updated_at": datetime.utcnow()}
+    }
 
     result = await db.tenders.find_one_and_update(
-        {"_id": ObjectId(tender_id)},
-        {
-            "$push": {"documents": {"$each": uploaded_files_info}}, # Use $each for multiple documents
-            "$set": {"updated_at": datetime.utcnow()}
-        },
+        atomic_filter,
+        update_operation,
         return_document=True
     )
 
+    # 3. Manejar el resultado de la operación
     if result:
         result["id"] = str(result["_id"])
         return Tender(**result)
-    
-    return None # Should not happen if tender was found initially
+    else:
+        # La actualización falló, probablemente por el límite de documentos.
+        # Realizar limpieza de los archivos subidos para evitar datos huérfanos.
+        if inserted_file_ids:
+            await db.tender_files.delete_many({"_id": {"$in": inserted_file_ids}})
+        
+        # Verificar si la licitación existe para dar un error más preciso
+        tender_exists = await check_tender_exists(db, tender_id)
+        if not tender_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Licitación no encontrada."
+            )
+        
+        # Si la licitación existe, el fallo fue por la condición de tamaño
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se pueden agregar más de 5 documentos a la licitación."
+        )
 
 
 async def delete_document(
@@ -638,25 +599,22 @@ async def create_placeholder_analysis(
     """
     from backend.automations.models import Automation
     from backend.auth.database import get_db
-    from sqlalchemy.ext.asyncio import AsyncSession
     import uuid
 
-    # This is not ideal, but we need to get the automation name
-    # A better solution would be to pass the automation name to this function
-    async def get_automation_name(db_session: AsyncSession, automation_uuid: uuid.UUID) -> str:
-        automation = await db_session.get(Automation, automation_uuid)
-        return automation.name if automation else "Unknown"
-
-    db_session_gen = get_db()
-    db_session = await db_session_gen.__anext__()
+    automation_name = "Unknown Automation"
+    # Safely get the automation name from PostgreSQL
     try:
-        automation_name = await get_automation_name(db_session, uuid.UUID(automation_id))
-    finally:
-        await db_session.close()
+        async for db_session in get_db():
+            automation = await db_session.get(Automation, uuid.UUID(automation_id))
+            if automation:
+                automation_name = automation.name
+    except Exception as e:
+        # Log the error but proceed with a default name
+        print(f"Could not retrieve automation name: {e}")
 
     analysis_result = AnalysisResult(
         id=str(uuid.uuid4()),
-        name=f"Analysis in progress...",
+        name=automation_name,  # Use the fetched automation name
         procedure_id=automation_id,
         procedure_name=automation_name,
         created_by=user_id,
@@ -736,31 +694,6 @@ async def get_analysis_by_id(
         return AnalysisResult(**tender["analysis_results"][0])
     
     return None
-
-    """
-    Updates an analysis result in a tender.
-    
-    Args:
-        db: MongoDB database
-        tender_id: ID of the tender
-        analysis_id: ID of the analysis result
-        status: The new status
-        data: The analysis data
-        error_message: An error message if the analysis failed
-    """
-    update_fields = {
-        "analysis_results.$.status": status,
-        "analysis_results.$.updated_at": datetime.utcnow(),
-    }
-    if data:
-        update_fields["analysis_results.$.data"] = data
-    if error_message:
-        update_fields["analysis_results.$.error_message"] = error_message
-    
-    await db.tenders.update_one(
-        {"_id": ObjectId(tender_id), "analysis_results.id": analysis_id},
-        {"$set": update_fields}
-    )
 
 
 
