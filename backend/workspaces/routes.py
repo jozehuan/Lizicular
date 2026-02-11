@@ -20,7 +20,22 @@ from backend.auth.audit_utils import create_audit_log
 from backend.auth.models import AuditAction, AuditCategory
 from backend.tenders.tenders_utils import get_tenders_by_workspace, MongoDB, delete_tenders_by_workspace
 
+
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
+
+@router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
+async def create_workspace_no_slash(
+    workspace_data: WorkspaceCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    This endpoint is a workaround for clients that might not be adding the trailing slash,
+    causing a 307 redirect and losing the Authorization header.
+    """
+    return await create_workspace(workspace_data, request, db, current_user)
+
 
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
@@ -110,7 +125,7 @@ async def get_user_workspaces(
     )
     return result.scalars().all()
 
-@router.get("/detailed/", response_model=List[WorkspaceWithTendersResponse])
+@router.get("/detailed", response_model=List[WorkspaceWithTendersResponse])
 async def get_user_workspaces_with_tenders(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)

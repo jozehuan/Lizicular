@@ -22,7 +22,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { AlertCircle, CheckCircle, Clock, FileJson, Info } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, FileJson, Info, Loader2, Trash2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 // Interfaces based on backend/tenders/schemas.py
 interface InformacionGeneral {
@@ -90,28 +91,121 @@ interface AnalysisResult {
   name: string
   procedure_name: string
   created_at: string
-  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
-  data: AnalysisData
+  status: "pending" | "processing" | "completed" | "failed" | string
+  data: AnalysisData | null
+  error_message?: string
 }
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import Link from "next/link"
 
 interface AnalysisDisplayProps {
   analysisResults: AnalysisResult[]
+  onDelete: (analysisId: string) => void
+  spaceId: string
+  tenderId: string
 }
 
 const getStatusIcon = (status: AnalysisResult["status"]) => {
-  switch (status) {
-    case "COMPLETED":
+  switch (status?.toLowerCase()) {
+    case "completed":
       return <CheckCircle className="h-5 w-5 text-green-500" />
-    case "PROCESSING":
-      return <Clock className="h-5 w-5 text-blue-500" />
-    case "FAILED":
+    case "processing":
+      return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+    case "failed":
       return <AlertCircle className="h-5 w-5 text-red-500" />
     default:
-      return <Clock className="h-5 w-5 text-gray-500" />
+      return <Clock className="h-5 w-5 text-blue-500" />
   }
 }
 
-export function AnalysisDisplay({ analysisResults }: AnalysisDisplayProps) {
+const getStatusBadgeClasses = (status: AnalysisResult["status"]) => {
+  switch (status?.toLowerCase()) {
+    case "completed":
+      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800"
+    case "processing":
+    case "pending":
+      return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800"
+    case "failed":
+      return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-800"
+    default:
+      return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900/40 dark:text-gray-300 dark:border-gray-800"
+  }
+}
+
+const parseErrorMessage = (message?: string): string => {
+  if (!message) return "No detail provided.";
+
+  const prefix = "Error from automation service: ";
+  let detail = message;
+
+  if (message.startsWith(prefix)) {
+    detail = message.substring(prefix.length);
+  }
+
+  // Clean up n8n artifacts from the final detail string
+  if (detail.startsWith('$input.detail')) {
+    detail = detail.substring('$input.detail'.length).trim();
+  }
+  
+  // Also handle cases where the error from httpx is the main content
+  const httpErrorPrefix = "httpx.HTTPStatusError: ";
+  if (detail.startsWith(httpErrorPrefix)) {
+    detail = detail.substring(httpErrorPrefix.length);
+  }
+
+  // NEW: Remove URL part from the error string
+  const urlIndex = detail.indexOf(" for url ");
+  if (urlIndex !== -1) {
+    detail = detail.substring(0, urlIndex);
+  }
+
+  return detail.trim() || "No detail provided.";
+};
+
+// Helper component to render the dynamic summary
+const DynamicSummary = ({ data }: { data: any }) => {
+  const renderSummary = (obj: any, level = 0) => {
+    if (!obj || typeof obj !== 'object') {
+      return null;
+    }
+
+    const keys = Object.keys(obj).filter(
+      k => !['_id', 'tender_id', 'created_at'].includes(k)
+    );
+
+    return (
+      <ul className={`space-y-1 ${level > 0 ? 'pl-4' : ''}`}>
+        {keys.map(key => {
+          const value = obj[key];
+          const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+          return (
+            <li key={key} className="text-sm">
+              <span className="font-semibold">{formattedKey}:</span>
+              {Array.isArray(value) ? (
+                <span className="ml-2">{value.length} elementos</span>
+              ) : typeof value === 'object' && value !== null ? (
+                renderSummary(value, level + 1)
+              ) : (
+                <span className="ml-2">{String(value)}</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  return renderSummary(data);
+};
+
+export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }: AnalysisDisplayProps) {
   if (!analysisResults || analysisResults.length === 0) {
     return (
       <Card className="text-center">
@@ -129,197 +223,98 @@ export function AnalysisDisplay({ analysisResults }: AnalysisDisplayProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {analysisResults.map((result) => (
-        <Card key={result.id} className="overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between bg-gray-50 dark:bg-gray-800">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                {getStatusIcon(result.status)}
-                {result.name}
-              </CardTitle>
-              <CardDescription className="mt-1">
-                Procedure: {result.procedure_name} | Created:{" "}
-                {new Date(result.created_at).toLocaleString()}
-              </CardDescription>
-            </div>
-            <Badge
-              variant={
-                result.status === "COMPLETED"
-                  ? "default"
-                  : result.status === "FAILED"
-                    ? "destructive"
-                    : "secondary"
-              }
+        <div key={result.id} className="flex items-start gap-2">
+          <Accordion type="single" collapsible className="flex-1">
+            <AccordionItem 
+              value={result.id} 
+              className="border rounded-lg overflow-hidden"
             >
-              {result.status}
-            </Badge>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Accordion type="single" collapsible className="w-full">
-              {/* Informacion General */}
-              <AccordionItem value="info-general">
-                <AccordionTrigger className="px-6">
-                  <Info className="mr-2" /> General Information
-                </AccordionTrigger>
-                <AccordionContent className="px-6">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Requirement</TableHead>
-                        <TableHead>Detail</TableHead>
-                        <TableHead>Reference</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {result.data.informacion_general.map((item, i) => (
-                        <TableRow key={i}>
-                          <TableCell>{item.requisito}</TableCell>
-                          <TableCell>{item.detalle}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{item.referencia}</Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </AccordionContent>
-              </AccordionItem>
-
-              {/* Requisitos */}
-              <AccordionItem value="requisitos">
-                <AccordionTrigger className="px-6">
-                  <CheckCircle className="mr-2" /> Requirements
-                </AccordionTrigger>
-                <AccordionContent className="px-6">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Requirement</TableHead>
-                        <TableHead>Detail</TableHead>
-                        <TableHead>Reference</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {result.data.requisitos.map((item, i) => (
-                        <TableRow key={i}>
-                          <TableCell>{item.requisito}</TableCell>
-                          <TableCell>{item.detalle}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{item.referencia}</Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </AccordionContent>
-              </AccordionItem>
-
-              {/* Criterios No Matemáticos */}
-              <AccordionItem value="criterios-no-matematicos">
-                <AccordionTrigger className="px-6">
-                  <FileJson className="mr-2" /> Non-Mathematical Criteria
-                </AccordionTrigger>
-                <AccordionContent className="px-6">
-                  {result.data.criterios_no_matematicos.map((criterio, i) => (
-                    <Card key={i} className="mb-4">
-                      <CardHeader>
-                        <CardTitle>{criterio.nombre}</CardTitle>
-                        <CardDescription>
-                          Total points: {criterio.puntuacion_total} |{" "}
-                          Reference:{" "}
-                          <Badge variant="outline">
-                            {criterio.referencia}
+              <AccordionTrigger className="p-4 bg-gray-50 dark:bg-gray-800 hover:no-underline">
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-3">
+                    {getStatusIcon(result.status)}
+                    <div className="text-left">
+                      {result.status.toLowerCase() === 'completed' ? (
+                        <Link 
+                          href={`/space/${spaceId}/tender/${tenderId}/${result.id}`}
+                          className="font-semibold hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {result.name}
+                        </Link>
+                      ) : (
+                        <p className="font-semibold">{result.name}</p>
+                      )}
+                      <p className="text-sm text-muted-foreground">
+                        Created: {new Date(result.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 pr-2">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className={getStatusBadgeClasses(result.status)}
+                          >
+                            {result.status.toUpperCase()}
                           </Badge>
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="mb-4">{criterio.detalle}</p>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Sub-criterion</TableHead>
-                              <TableHead>Detail</TableHead>
-                              <TableHead>Points</TableHead>
-                              <TableHead>Reference</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {criterio.subcriterios.map((sub, j) => (
-                              <TableRow key={j}>
-                                <TableCell>{sub.nombre}</TableCell>
-                                <TableCell>{sub.detalle}</TableCell>
-                                <TableCell>{sub.puntuacion}</TableCell>
-                                <TableCell>
-                                  <Badge variant="outline">
-                                    {sub.referencia}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
-
-              {/* Criterios Matemáticos */}
-              <AccordionItem value="criterios-matematicos">
-                <AccordionTrigger className="px-6">
-                  <FileJson className="mr-2" /> Mathematical Criteria
-                </AccordionTrigger>
-                <AccordionContent className="px-6">
-                  {result.data.criterios_matematicos.map((criterio, i) => (
-                    <Card key={i} className="mb-4">
-                      <CardHeader>
-                        <CardTitle>{criterio.nombre}</CardTitle>
-                        <CardDescription>
-                          Points: {criterio.puntuacion} | Reference:{" "}
-                          <Badge variant="outline">
-                            {criterio.referencia}
-                          </Badge>
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="mb-4">{criterio.detalle}</p>
-                        <div className="bg-gray-100 dark:bg-gray-700 p-4 rounded-md mb-4">
-                          <p className="font-mono text-center">
-                            {criterio.formula.formula}
-                          </p>
-                          <p className="text-sm text-center italic mt-2">
-                            {criterio.formula.detalle_formula}
-                          </p>
-                        </div>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Symbol</TableHead>
-                              <TableHead>Detail</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {criterio.formula.variables.map((v, j) => (
-                              <TableRow key={j}>
-                                <TableCell className="font-mono">
-                                  {v.simbolo}
-                                </TableCell>
-                                <TableCell>{v.detalle}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </CardContent>
-        </Card>
+                        </TooltipTrigger>
+                        {result.status.toLowerCase() === 'failed' && (
+                          <TooltipContent>
+                            <p>{parseErrorMessage(result.error_message)}</p>
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                </div>
+              </AccordionTrigger>
+              
+              <AccordionContent className="p-4 bg-white dark:bg-black">
+                {result.status === "completed" && result.data ? (
+                  <DynamicSummary data={result.data} />
+                ) : result.status === "processing" ? (
+                  <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
+                    <Clock className="h-8 w-8 mb-2 animate-spin" />
+                    <p>Analysis in progress, please wait...</p>
+                  </div>
+                ) : result.status === "failed" ? (
+                  <div className="flex flex-col items-center justify-center p-8 text-destructive">
+                    <AlertCircle className="h-8 w-8 mb-2" />
+                    <p className="font-semibold">Analysis Failed</p>
+                    {/* The detailed message is now in the tooltip */}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
+                    <Clock className="h-8 w-8 mb-2" />
+                    <p>Analysis is pending and will start soon.</p>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+          
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={
+              result.status.toLowerCase() === 'pending' || 
+              result.status.toLowerCase() === 'processing'
+            }
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(result.id);
+            }}
+            className="shrink-0 text-muted-foreground hover:text-destructive mt-5 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       ))}
     </div>
-  )
+  );
 }
-

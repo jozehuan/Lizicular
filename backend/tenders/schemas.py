@@ -511,6 +511,7 @@ class DocumentUpload(BaseModel):
 class GenerateAnalysisRequest(BaseModel):
     """Schema for requesting an analysis generation."""
     automation_id: str = Field(..., description="ID of the automation to use for the analysis.")
+    name: str | None = Field(None, description="Optional name for the analysis.")
 
 class GenerateAnalysisResponse(BaseModel):
     message: str
