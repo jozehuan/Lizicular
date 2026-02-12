@@ -14,13 +14,14 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - **ORM:** SQLAlchemy (AsyncPG)
 - **Infraestructura:** Docker & Docker Compose
 
-### **Autenticación y Seguridad**
-- **Estrategia Dual de Tokens:** Access Token (15 min, JSON) y Refresh Token (7 días, Cookie HttpOnly).
-- **Invalidación Inmediata:** Uso de Redis para gestionar una lista negra de tokens revocados (logout o rotación).
-- **Protección XSS:** Los Refresh Tokens se almacenan en cookies no accesibles por JavaScript.
-- **OAuth2:** Integración con proveedores externos (Google, Facebook, GitHub, Microsoft).
-- **RBAC (Control de Acceso basado en Roles):** Roles específicos (Owner, Admin, Editor, Viewer) a nivel de Workspace.
-- **Auditoría Universal:** Registro detallado de eventos en PostgreSQL con JSONB para trazabilidad completa.
+### **Autenticación y Seguridad (Arquitectura "Gold Standard")**
+- **Estrategia de Tokens Segura:**
+  - **`accessToken` (15 min):** Un token de corta duración que se almacena exclusivamente en la memoria del frontend (React Context). Se utiliza para autorizar cada petición a la API. Al no persistir en `localStorage`, se mitiga el riesgo de robo por ataques XSS.
+  - **`refreshToken` (7 días):** Un token de larga duración que se almacena en una **cookie `HttpOnly`, `Secure` y `SameSite=Lax`**. Es inaccesible para JavaScript y se utiliza únicamente para solicitar nuevos `accessToken`.
+- **Flujo de Autenticación Robusto:** Tras un login exitoso, el frontend no recibe el `accessToken` directamente. En su lugar, el `AuthContext` utiliza el `refreshToken` de la cookie para obtener de forma segura el `accessToken` inicial, que se gestiona en memoria.
+- **Rotación de Tokens y Lista Negra:** Cada vez que se usa un `refreshToken`, se emite uno nuevo (rotación) y el anterior se invalida inmediatamente en una "lista negra" en Redis, previniendo ataques de reutilización.
+- **OAuth2 y RBAC:** Se mantiene la integración con proveedores externos y el sistema de roles a nivel de Workspace.
+- **Auditoría Universal:** Registro detallado de todos los eventos de seguridad y acceso para una trazabilidad completa.
 
 ### **Módulos de Gestión**
 - **Workspaces:** Organización lógica de licitaciones y equipos.

@@ -4,10 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Any
 import uuid
+import asyncio
 from starlette.responses import StreamingResponse
 import io
 from bson import ObjectId
 import httpx
+from fastapi.responses import JSONResponse
 
 from backend.auth.database import get_db
 from backend.auth.auth_utils import get_current_active_user
@@ -473,18 +475,28 @@ async def run_analysis_in_background(
             response = await client.post(
                 automation_url,
                 json={"tender_id": tender_id, "analysis_id": analysis_id},
-                timeout=3600.0,
+                timeout=900.0,
             )
             # Raise an exception for non-2xx status codes.
             response.raise_for_status()
 
-            # If we get here, the HTTP request was successful.
-            # The entire response body is considered the analysis result data.
-            try:
-                analysis_data = response.json()
-            except Exception:
-                # Handle cases where the response is not valid JSON, but status was 2xx
-                analysis_data = {"raw_response": response.text}
+            # Poll for the analysis result document to be created by the n8n workflow.
+            # This avoids a race condition where we check for the doc before it's written.
+            verified_analysis_doc = None
+            max_retries = 15  # 15 retries * 2 seconds sleep = 30 seconds total wait time
+            for _ in range(max_retries):
+                verified_analysis_doc = await MongoDB.database.analysis_results.find_one(
+                    {"_id": analysis_id}
+                )
+                if verified_analysis_doc:
+                    break
+                await asyncio.sleep(2)
+            
+            if not verified_analysis_doc:
+                raise Exception("Analysis result not found in database after successful automation run (30s timeout).")
+
+            # The 'data' for the embedded analysis result should come from this verified document.
+            analysis_data = verified_analysis_doc.get("data")
 
             await update_analysis_result(
                 MongoDB.database,
@@ -574,7 +586,8 @@ async def api_generate_analysis(
         MongoDB.database,
         tender_id,
         analysis_request.automation_id,
-        str(current_user.id)
+        str(current_user.id),
+        name=analysis_request.name
     )
 
     if not placeholder:
@@ -598,5 +611,38 @@ async def api_generate_analysis(
         analysis_id=placeholder.id
     )
 
+# ============================================================================
+# STANDALONE ANALYSIS RESULTS ENDPOINTS
+# ============================================================================
 
+analysis_router = APIRouter(prefix="/analysis-results", tags=["Analysis"])
 
+@analysis_router.get("/{analysis_id}")
+async def get_single_analysis_result(
+    analysis_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Any = Depends(get_current_active_user)
+):
+    """
+    Retrieves a single analysis result from the 'analysis_results' collection,
+    ensuring the user has permission to view it by checking the parent tender.
+    """
+    # Find the tender that embeds this analysis result to check permissions
+    tender = await MongoDB.database.tenders.find_one({"analysis_results.id": analysis_id})
+    if not tender:
+        raise HTTPException(status_code=404, detail="No tender associated with this analysis result found")
+
+    # Check user's permission on the workspace
+    if not await check_workspace_permission(tender["workspace_id"], current_user.id, db, WorkspaceRole.VIEWER):
+        raise HTTPException(status_code=403, detail="Access denied to this analysis result")
+
+    # Fetch the actual analysis result from its own collection
+    analysis_doc = await MongoDB.database.analysis_results.find_one({"_id": analysis_id})
+    if not analysis_doc:
+        raise HTTPException(status_code=404, detail="Analysis result not found in its collection")
+
+    # Clean up the document for JSON response
+    if "_id" in analysis_doc:
+        analysis_doc["_id"] = str(analysis_doc["_id"])
+    
+    return JSONResponse(content=analysis_doc)

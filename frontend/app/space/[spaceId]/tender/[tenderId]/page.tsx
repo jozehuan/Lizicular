@@ -4,13 +4,31 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input" // Import Input component
 import { Button } from "@/components/ui/button" // Import Button component
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog" // Import Dialog components
 import { Label } from "@/components/ui/label" // Import Label component
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog" // Import AlertDialog components
 import {
   FileText,
   TrendingUp,
@@ -20,7 +38,7 @@ import {
   Upload, // Import Upload icon
   X, // Import X icon
 } from "lucide-react"
-import { useState, useRef, use, useLayoutEffect, useMemo } from "react" // Import useRef, useLayoutEffect, useMemo
+import { useState, useRef, use, useMemo, useCallback, useEffect } from "react" // Import useRef, useLayoutEffect, useMemo
 import Link from "next/link"
 
 import {
@@ -44,7 +62,7 @@ import { DashboardFooter } from "@/components/dashboard/footer"
 import { ChatbotWidget } from "@/components/dashboard/chatbot-widget"
 import { AnalysisDisplay } from "@/components/tender/analysis-display"
 
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000" // Define API_URL here
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 // Interfaces matching the backend schema
 interface TenderDocument {
@@ -58,8 +76,9 @@ interface AnalysisResult {
   name: string
   procedure_name: string
   created_at: string
-  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
+  status: "pending" | "processing" | "completed" | "failed" | string
   data: any // Keeping this generic for now, as AnalysisDisplay handles the details
+  error_message?: string
 }
 
 interface TenderData {
@@ -70,6 +89,12 @@ interface TenderData {
   created_at: string
   documents: TenderDocument[]
   analysis_results: AnalysisResult[]
+}
+
+interface Automation {
+  id: string
+  name: string
+  description: string | null
 }
 
 function getStatusColor(status: string) {
@@ -99,8 +124,8 @@ export default function TenderAnalysisPage({
 }: {
   params: { spaceId: string; tenderId: string }
 }) {
-  const { spaceId, tenderId } = use(params)
-  const { user, accessToken } = useAuth() // Get user and accessToken from useAuth
+    const { spaceId, tenderId } = use(params)
+    const { user, accessToken, isLoading: isAuthLoading } = useAuth() // Get user and accessToken from useAuth
   const [tender, setTender] = useState<TenderData | null>(null)
   const [workspaceName, setWorkspaceName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -109,10 +134,162 @@ export default function TenderAnalysisPage({
   const [newTenderName, setNewTenderName] = useState("") // New tender name during editing
   const [currentMemberRole, setCurrentMemberRole] = useState<string | null>(null) // User's role in the workspace
 
+  const [resultToDeleteId, setResultToDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const [automations, setAutomations] = useState<Automation[]>([]);
+  const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [newAnalysisName, setNewAnalysisName] = useState("");
+  const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
   const canEditTender = useMemo(() => {
     const editableRoles = ["OWNER", "ADMIN", "EDITOR"];
     return currentMemberRole ? editableRoles.includes(currentMemberRole) : false;
   }, [currentMemberRole]);
+
+  const fetchTenderAndWorkspaceData = useCallback(async () => {
+    if (!accessToken || !user?.id || isAuthLoading) {
+      // Don't set error here, let the auth state settle
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      // Fetch all data in parallel
+      const [tenderRes, workspaceRes, automationsRes] = await Promise.all([
+        fetch(`${API_URL}/tenders/${tenderId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+        fetch(`${API_URL}/workspaces/${spaceId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+        fetch(`${API_URL}/automations/`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      ]);
+
+      if (!tenderRes.ok) {
+        const errorData = await tenderRes.json();
+        throw new Error(errorData.detail || "Failed to fetch tender.");
+      }
+      const tenderData: TenderData = await tenderRes.json();
+      
+      // Create a new, immutable version of the analysis results by patching missing data
+      const results = tenderData.analysis_results || [];
+      const patchedResults = await Promise.all(results.map(async (result) => {
+        if (result.status === 'completed' && !result.data) {
+          try {
+            const analysisRes = await fetch(`${API_URL}/analysis-results/${result.id}`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (analysisRes.ok) {
+              const fullAnalysisData = await analysisRes.json();
+              return { ...result, data: fullAnalysisData }; // Return a new object
+            }
+          } catch (patchError) {
+            console.error(`Failed to patch analysis data for ${result.id}:`, patchError);
+          }
+        }
+        return result; // Return the original result if no patching is needed
+      }));
+
+      const updatedTenderData = { ...tenderData, analysis_results: patchedResults };
+
+      setTender(updatedTenderData);
+      setNewTenderName(updatedTenderData.name);
+
+      if (!workspaceRes.ok) {
+        const errorData = await workspaceRes.json();
+        throw new Error(errorData.detail || "Failed to fetch workspace.");
+      }
+      const workspaceData = await workspaceRes.json();
+      setWorkspaceName(workspaceData.name);
+
+      const currentUserMembership = workspaceData.members.find(
+        (member: any) => member.user_id === user.id
+      );
+      setCurrentMemberRole(currentUserMembership ? currentUserMembership.role : null);
+
+      if (!automationsRes.ok) {
+        const errorData = await automationsRes.json();
+        throw new Error(errorData.detail || "Failed to fetch automations.");
+      }
+      const automationsData: Automation[] = await automationsRes.json();
+      setAutomations(automationsData);
+
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred.");
+    } finally {
+      setLoading(false);
+    }
+  }, [spaceId, tenderId, accessToken, user?.id, isAuthLoading]);
+
+
+  useEffect(() => {
+    fetchTenderAndWorkspaceData();
+  }, [fetchTenderAndWorkspaceData]);
+
+  // WebSocket logic for real-time analysis updates
+  useEffect(() => {
+    if (!tender?.analysis_results) return;
+
+    const sockets: WebSocket[] = [];
+
+    tender.analysis_results.forEach(result => {
+      if (result.status === 'pending' || result.status === 'processing') {
+        const wsUrl = API_URL.replace(/^http/, 'ws') + `/ws/analysis/${result.id}`;
+        
+        try {
+          const ws = new WebSocket(wsUrl);
+
+          ws.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            if (message.status === 'COMPLETED' || message.status === 'FAILED') {
+              // Refetch all data to ensure UI is in sync with the database
+              fetchTenderAndWorkspaceData();
+            }
+          };
+
+          ws.onerror = (error) => {
+            console.error(`WebSocket error for analysis ${result.id}:`, error);
+          };
+          
+          sockets.push(ws);
+
+        } catch (error) {
+          console.error(`Failed to create WebSocket for analysis ${result.id}:`, error);
+        }
+      }
+    });
+
+    // Cleanup on component unmount
+    return () => {
+      sockets.forEach(ws => {
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
+      });
+    };
+  }, [tender?.analysis_results, fetchTenderAndWorkspaceData]);
+
+  // Refetch data when the tab becomes visible again to ensure freshness
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchTenderAndWorkspaceData();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchTenderAndWorkspaceData]);
+
 
   const handleUpdateTenderName = async () => {
     if (!tender || !accessToken || newTenderName === tender.name) {
@@ -136,7 +313,12 @@ export default function TenderAnalysisPage({
       }
 
       const updatedTender: TenderData = await response.json();
-      setTender(updatedTender);
+      // Use functional update to preserve patched analysis data
+      setTender(prevTender => ({
+        ...(prevTender || updatedTender),
+        ...updatedTender,
+        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
+      }));
       setIsEditingTenderName(false);
       setError(null);
     } catch (err: any) {
@@ -155,61 +337,85 @@ export default function TenderAnalysisPage({
 
   const fileInputRef = useRef<HTMLInputElement>(null); // Ref for hidden file input
 
-  // Fetch tender and workspace data
-  useLayoutEffect(() => {
-    const fetchTenderAndWorkspaceData = async () => {
-      if (!accessToken || !user?.id) {
-        setError("Authentication required.");
-        setLoading(false);
-        return;
+  const handleDeleteAnalysisClick = (analysisId: string) => {
+    setResultToDeleteId(analysisId);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!resultToDeleteId || !tender) return;
+
+    setIsDeleting(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/tenders/${tender.id}/analysis/${resultToDeleteId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to delete analysis result.");
       }
 
-      try {
-        // Fetch tender data
-        const tenderResponse = await fetch(`${API_URL}/tenders/${tenderId}`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-        if (!tenderResponse.ok) {
-          const errorData = await tenderResponse.json();
-          throw new Error(errorData.detail || "Failed to fetch tender.");
-        }
-        const tenderData: TenderData = await tenderResponse.json();
-        setTender(tenderData);
-        setNewTenderName(tenderData.name); // Initialize newTenderName
+      // Refresh data to show updated list
+      await fetchTenderAndWorkspaceData();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsDeleting(false);
+      setResultToDeleteId(null);
+    }
+  };
 
-        // Fetch workspace data to get the name and user's role
-        const workspaceResponse = await fetch(`${API_URL}/workspaces/${spaceId}`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-        if (!workspaceResponse.ok) {
-          const errorData = await workspaceResponse.json();
-          throw new Error(errorData.detail || "Failed to fetch workspace.");
-        }
-        const workspaceData = await workspaceResponse.json();
-        setWorkspaceName(workspaceData.name);
+  const handleGenerateAnalysis = async () => {
+    if (!selectedAutomationId) {
+      setGenerateError("Please select an automation.");
+      return;
+    }
 
-        // Determine current user's role in the workspace
-        const currentUserMembership = workspaceData.members.find(
-          (member: any) => member.user_id === user.id
-        );
-        if (currentUserMembership) {
-          setCurrentMemberRole(currentUserMembership.role);
-        } else {
-          setCurrentMemberRole(null); // User is not a member of this workspace
-        }
-      } catch (err: any) {
-        setError(err.message || "An unexpected error occurred.");
-      } finally {
-        setLoading(false);
+    setIsGenerating(true);
+    setGenerateError(null);
+
+    try {
+      let finalName = newAnalysisName.trim();
+      if (!finalName) {
+        const selectedAutomation = automations.find(a => a.id === selectedAutomationId);
+        const automationName = selectedAutomation?.name || "Analysis";
+        finalName = `${automationName} - ${format(new Date(), "yyyy-MM-dd HH:mm")}`;
       }
-    };
 
-    fetchTenderAndWorkspaceData();
-  }, [spaceId, tenderId, accessToken, user?.id]);
+      const response = await fetch(`${API_URL}/tenders/${tenderId}/generate_analysis`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          automation_id: selectedAutomationId,
+          name: finalName,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to start analysis generation.");
+      }
+
+      // Success
+      setShowGenerateDialog(false);
+      setNewAnalysisName("");
+      setSelectedAutomationId(null);
+      await fetchTenderAndWorkspaceData(); // Refresh data to show pending analysis
+
+    } catch (err: any) {
+      setGenerateError(err.message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
 
   // Function to handle adding files
   const handleAddFiles = async () => {
@@ -246,7 +452,12 @@ export default function TenderAnalysisPage({
       }
 
       const updatedTender = await response.json();
-      setTender(updatedTender); // Update tender state with new documents
+      // Use functional update to preserve patched analysis data
+      setTender(prevTender => ({
+        ...(prevTender || updatedTender),
+        ...updatedTender,
+        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
+      }));
       setShowAddFileDialog(false); // Close dialog
       setFilesToUpload([]); // Clear selected files
       setError(null); // Clear any main error
@@ -279,7 +490,12 @@ export default function TenderAnalysisPage({
       }
 
       const updatedTender = await response.json();
-      setTender(updatedTender); // Update tender state with document removed
+      // Use functional update to preserve patched analysis data
+      setTender(prevTender => ({
+        ...(prevTender || updatedTender),
+        ...updatedTender,
+        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
+      }));
       setError(null); // Clear any main error
     } catch (err: any) {
       setError(err.message || "An error occurred during document removal.");
@@ -460,10 +676,23 @@ export default function TenderAnalysisPage({
           </Card>
 
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold text-foreground">
-              Analysis Results
-            </h2>
-            <AnalysisDisplay analysisResults={tender.analysis_results} />
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-foreground">
+                Analysis Results
+              </h2>
+              {canEditTender && (
+                <Button onClick={() => setShowGenerateDialog(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Generate Analysis
+                </Button>
+              )}
+            </div>
+            <AnalysisDisplay 
+              analysisResults={tender.analysis_results} 
+              onDelete={handleDeleteAnalysisClick}
+              spaceId={spaceId}
+              tenderId={tenderId}
+            />
           </div>
         </main>
 
@@ -475,9 +704,9 @@ export default function TenderAnalysisPage({
       <Dialog open={showAddFileDialog} onOpenChange={setShowAddFileDialog}>
         <DialogContent className="rounded-xl border-border bg-card max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-foreground">Add Documents to Tender</DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              Drag and drop PDF files or click to select them to add to this tender.
+            <DialogTitle>Add More Files</DialogTitle>
+            <DialogDescription>
+              Upload additional PDF documents to this tender.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-6 pt-4">
@@ -487,24 +716,23 @@ export default function TenderAnalysisPage({
                 {uploadError}
               </div>
             )}
+
             <div
-              onDragOver={(e) => { e.preventDefault(); /* setIsDragging(true); */ }}
-              onDragLeave={(e) => { e.preventDefault(); /* setIsDragging(false); */ }}
+              onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                // setIsDragging(false);
-                const droppedFiles = Array.from(e.dataTransfer.files);
+                const droppedFiles = Array.from(e.dataTransfer.files).filter(
+                  (file) => file.type === "application/pdf"
+                );
                 setFilesToUpload((prev) => [...prev, ...droppedFiles]);
               }}
               onClick={() => fileInputRef.current?.click()}
-              className={`
-                border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors
-                border-border hover:border-primary/50 hover:bg-muted/50
-              `}
+              className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/50"
+              aria-disabled={isUploadingFiles}
             >
               <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
               <p className="text-foreground font-medium">
-                Drag and drop files here
+                Drag and drop PDF files here
               </p>
               <p className="text-sm text-muted-foreground mt-1">
                 or click to browse from your computer
@@ -513,7 +741,7 @@ export default function TenderAnalysisPage({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf" // Assuming only PDF files are allowed
+                accept=".pdf"
                 onChange={(e) => {
                   if (e.target.files) {
                     setFilesToUpload((prev) => [...prev, ...Array.from(e.target.files)]);
@@ -542,7 +770,7 @@ export default function TenderAnalysisPage({
                             {file.name}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {file.size ? (file.size / 1024).toFixed(1) + " KB" : ""}
+                            {(file.size / 1024).toFixed(1)} KB
                           </p>
                         </div>
                       </div>
@@ -562,38 +790,111 @@ export default function TenderAnalysisPage({
                 </div>
               </div>
             )}
-
-            <div className="flex justify-end gap-3 pt-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowAddFileDialog(false);
-                  setFilesToUpload([]);
-                  setUploadError(null);
-                }}
-                disabled={isUploadingFiles}
-                className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleAddFiles}
-                disabled={filesToUpload.length === 0 || isUploadingFiles}
-                className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                {isUploadingFiles ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Uploading...
-                  </>
-                ) : (
-                  "Upload Documents"
-                )}
-              </Button>
-            </div>
           </div>
+          <DialogFooter className="pt-6">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowAddFileDialog(false);
+                setFilesToUpload([]);
+                setUploadError(null);
+              }}
+              disabled={isUploadingFiles}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddFiles}
+              disabled={filesToUpload.length === 0 || isUploadingFiles}
+            >
+              {isUploadingFiles ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                "Upload Files"
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Generate Analysis Dialog */}
+      <Dialog open={showGenerateDialog} onOpenChange={setShowGenerateDialog}>
+        <DialogContent className="rounded-xl border-border bg-card">
+          <DialogHeader>
+            <DialogTitle>Generate New Analysis</DialogTitle>
+            <DialogDescription>
+              Select an automation and provide a name for this analysis run.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            {generateError && (
+               <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 text-destructive text-sm">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                {generateError}
+              </div>
+            )}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="analysis-name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="analysis-name"
+                value={newAnalysisName}
+                onChange={(e) => setNewAnalysisName(e.target.value)}
+                placeholder="Optional, e.g., 'Initial Price Check'"
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="automation" className="text-right">
+                Automation
+              </Label>
+              <Select onValueChange={setSelectedAutomationId} value={selectedAutomationId || undefined}>
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select an automation" />
+                </SelectTrigger>
+                <SelectContent>
+                  {automations.map((auto) => (
+                    <SelectItem key={auto.id} value={auto.id}>
+                      {auto.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGenerateDialog(false)}>Cancel</Button>
+            <Button onClick={handleGenerateAnalysis} disabled={!selectedAutomationId || isGenerating}>
+              {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Generate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+       <AlertDialog open={!!resultToDeleteId} onOpenChange={(open) => !open && setResultToDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete this analysis result.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setResultToDeleteId(null)} disabled={isDeleting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ProtectedRoute>
   )
 }

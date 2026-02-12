@@ -4,12 +4,21 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:800
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. Call backend /auth/refresh
-    // The refresh token will be sent via cookie automatically because of 'credentials: "include"' in auth-context.tsx
+    const refreshToken = request.cookies.get('refresh_token')?.value;
+
+    if (!refreshToken) {
+      // If refresh token is not found in cookies, it means the user is not authenticated
+      return NextResponse.json({ error: "Refresh token missing" }, { status: 401 });
+    }
+
+    // 1. Call backend /auth/refresh with the manually propagated refresh token
     const refreshResponse = await fetch(`${BACKEND_URL}/auth/refresh`, {
       method: "POST",
-      credentials: "include",
-    })
+      headers: {
+        'Content-Type': 'application/json', // FastAPI's refresh endpoint expects JSON
+        'Cookie': `refresh_token=${refreshToken}`, // Manually set the Cookie header
+      },
+    });
 
     if (!refreshResponse.ok) {
       const errorData = await refreshResponse.json()

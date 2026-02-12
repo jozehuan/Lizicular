@@ -46,7 +46,7 @@ El módulo de autenticación y seguridad es completamente funcional y ha sido ex
 3. **Control de Acceso:** Implementación completa de Workspaces para organizar la colaboración en licitaciones, incluyendo gestión de miembros y roles. Los roles definidos son "OWNER", "ADMIN", "EDITOR" y "VIEWER". Estos roles son encapsulados, lo que significa que los roles superiores heredan todos los permisos de los inferiores. La jerarquía es la siguiente: `VIEWER` (el más bajo) < `EDITOR` < `ADMIN` < `OWNER`.
 
 4. **Trazabilidad:** Sistema de auditoría universal listo para cumplimiento (compliance) y monitoreo de seguridad, ahora extendido a acciones de Workspaces.
-5. **Estrategia de Seguridad de Tokens:** Implementación de Access Tokens efímeros (15m) y Refresh Tokens persistentes en cookies HttpOnly para protección contra XSS.
+5. **Estrategia de Seguridad de Tokens (Revisada):** Se ha implementado una arquitectura de autenticación "Gold Standard". El `accessToken` (efímero, 15m) se almacena únicamente en la memoria del frontend (React Context) para autorizar las peticiones a la API. El `refreshToken` (larga duración, 7 días) se almacena en una cookie `HttpOnly`, `Secure` y `SameSite=Lax`, haciéndolo inaccesible a ataques XSS. Tras el login/signup, el frontend solo recibe los datos del usuario; inmediatamente después, utiliza la cookie `HttpOnly` para obtener el `accessToken` inicial, evitando la exposición de tokens en el cuerpo de la respuesta. Las API Routes de Next.js actúan como un proxy seguro para gestionar y propagar estas cookies.
 6. **Invalidación de Tokens (Redis Blacklist):** Uso de Redis para invalidar inmediatamente tokens durante el logout o rotación, garantizando que un token robado no pueda ser reutilizado.
 7. **Preparación para el Chatbot:** La estructura de auditoría y workspaces está diseñada para integrarse con los flujos de automatización y el chatbot futuro.
 8. **Generación de Análisis Asíncrono:** Se ha implementado un flujo de generación de análisis asíncrono con notificaciones en tiempo real vía WebSockets. El frontend puede iniciar una tarea de análisis y, en lugar de esperar, recibe una respuesta inmediata. El estado y el resultado final de la tarea son enviados al frontend a través de un WebSocket, eliminando la necesidad de polling.
@@ -72,7 +72,11 @@ Se han realizado una serie de correcciones y mejoras en el frontend para estabil
 - **Solución de Errores de Referencia:** Corregido un error donde `DashboardHeader` no estaba definido en varias páginas.
 - **Compatibilidad con React 19:** Actualizada la forma de acceder a los parámetros de ruta dinámica (`params`) en páginas de cliente para ser compatible con las últimas versiones de Next.js y React.
 - **Modernización de Componentes:** Actualizado el uso del componente `<Link>` de Next.js para eliminar la etiqueta anidada `<a>`, siguiendo las nuevas convenciones.
-- **Corrección de Autenticación:**
+- **Refactorización Crítica de Autenticación:**
+    - Se ha refactorizado completamente el flujo de autenticación para seguir las mejores prácticas de seguridad ("Gold Standard"). El `accessToken` ya no se expone en el cuerpo de las respuestas de login/signup, mitigando riesgos de XSS.
+    - Se ha solucionado una condición de carrera (`race condition`) que provocaba un error `401 Unauthorized` al intentar refrescar el token inmediatamente después del login. El `AuthContext` ahora gestiona el ciclo de vida del token de forma robusta.
+    - Se ha corregido el reenvío de cookies en las API Routes de Next.js para garantizar que el `refreshToken` se propague correctamente entre el navegador, el servidor de Next.js y el backend de FastAPI.
+- **Corrección de Autenticación (Previa):**
     - Solucionado un error crítico en el hook `useApi` que impedía que el token de autenticación se enviara correctamente en las llamadas a la API.
     - Corregida la interfaz de `User` en el contexto de autenticación para incluir la propiedad opcional `picture`, evitando errores al renderizar el avatar del usuario.
 - **Configuración de Red y API:**

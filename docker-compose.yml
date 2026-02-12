@@ -37,6 +37,7 @@ services:
     image: mongo:6.0
     container_name: lizicular_mongodb
     restart: always
+    command: mongod --bind_ip_all 
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}

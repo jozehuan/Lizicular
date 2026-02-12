@@ -554,7 +554,8 @@ async def delete_analysis_result(
     result_id: str
 ) -> Optional[Tender]:
     """
-    Elimina un resultado de análisis.
+    Elimina un resultado de análisis tanto del documento Tender como de la
+    colección 'analysis_results'.
     
     Args:
         db: Base de datos MongoDB
@@ -564,6 +565,11 @@ async def delete_analysis_result(
     Returns:
         Licitación actualizada
     """
+    # 1. Eliminar el documento de la colección 'analysis_results'
+    # Se asume que el `result_id` es el campo `_id` en esa colección.
+    await db.analysis_results.delete_one({"_id": result_id})
+    
+    # 2. Eliminar la referencia del array en el documento de la licitación
     result = await db.tenders.find_one_and_update(
         {"_id": ObjectId(tender_id)},
         {
@@ -583,16 +589,19 @@ async def create_placeholder_analysis(
     db: Any,
     tender_id: str,
     automation_id: str,
-    user_id: str
+    user_id: str,
+    name: str | None = None
 ) -> Optional[AnalysisResult]:
     """
     Creates a placeholder analysis result in a tender.
+    If a name is not provided, it defaults to the automation name + current datetime.
     
     Args:
         db: MongoDB database
         tender_id: ID of the tender
         automation_id: ID of the automation
         user_id: ID of the user
+        name: Optional name for the analysis
         
     Returns:
         The created analysis result
@@ -612,9 +621,12 @@ async def create_placeholder_analysis(
         # Log the error but proceed with a default name
         print(f"Could not retrieve automation name: {e}")
 
+    # Determine the final analysis name
+    final_name = name if name else f"{automation_name} - {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+
     analysis_result = AnalysisResult(
         id=str(uuid.uuid4()),
-        name=automation_name,  # Use the fetched automation name
+        name=final_name,
         procedure_id=automation_id,
         procedure_name=automation_name,
         created_by=user_id,

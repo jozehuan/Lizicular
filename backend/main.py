@@ -23,7 +23,7 @@ from backend.auth.schemas import OAuthUserInfo
 from backend.auth.oauth_config import OAuthConfig
 from backend.auth.oauth_utils import OAuthProvider, get_oauth_user
 from backend.auth.database import engine
-from backend.tenders.routes import router as tenders_router
+from backend.tenders.routes import router as tenders_router, analysis_router as analysis_router
 from backend.workspaces.routes import router as workspaces_router
 from backend.auth.routes import router as auth_router, users_router
 from backend.automations.routes import router as automations_router  # Import automations router
@@ -40,10 +40,17 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     
     # Startup: MongoDB
-    mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-    mongodb_db = os.getenv("MONGODB_DB_NAME", "lizicular_db")
-    await MongoDB.connect_to_database(mongodb_url, mongodb_db)
-    
+    try:
+        mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+        mongodb_db = os.getenv("MONGODB_DB_NAME", "lizicular_db")
+        await MongoDB.connect_to_database(mongodb_url, mongodb_db)
+        print("MongoDB connection successful and indexes created.")
+    except Exception as e:
+        # Using a general exception to catch any driver-related errors
+        print(f"CRITICAL ERROR: Failed to connect to MongoDB or create indexes: {e}")
+        # Re-raise as a runtime error to halt application startup
+        raise RuntimeError("MongoDB connection failed, application cannot start.") from e
+
     yield
     
     # Shutdown: Dispose engines
@@ -83,6 +90,7 @@ app.include_router(tenders_router)
 app.include_router(workspaces_router)
 app.include_router(automations_router)
 app.include_router(websocket_router)
+app.include_router(analysis_router)
 
 
 @app.get(
