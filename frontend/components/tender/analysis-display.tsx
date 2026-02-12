@@ -224,7 +224,10 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
 
   return (
     <div className="space-y-4">
-      {analysisResults.map((result) => (
+      {analysisResults.map((result) => {
+        const normalizedStatus = result.status?.toLowerCase() || 'pending';
+
+        return (
         <div key={result.id} className="flex items-start gap-2">
           <Accordion type="single" collapsible className="flex-1">
             <AccordionItem 
@@ -234,9 +237,9 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
               <AccordionTrigger className="p-4 bg-gray-50 dark:bg-gray-800 hover:no-underline">
                 <div className="flex items-center justify-between w-full">
                   <div className="flex items-center gap-3">
-                    {getStatusIcon(result.status)}
+                    {getStatusIcon(normalizedStatus)}
                     <div className="text-left">
-                      {result.status.toLowerCase() === 'completed' ? (
+                      {normalizedStatus === 'completed' ? (
                         <Link 
                           href={`/space/${spaceId}/tender/${tenderId}/${result.id}`}
                           className="font-semibold hover:underline"
@@ -258,12 +261,12 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
                         <TooltipTrigger asChild>
                           <Badge
                             variant="outline"
-                            className={getStatusBadgeClasses(result.status)}
+                            className={getStatusBadgeClasses(normalizedStatus)}
                           >
                             {result.status.toUpperCase()}
                           </Badge>
                         </TooltipTrigger>
-                        {result.status.toLowerCase() === 'failed' && (
+                        {normalizedStatus === 'failed' && (
                           <TooltipContent>
                             <p>{parseErrorMessage(result.error_message)}</p>
                           </TooltipContent>
@@ -275,14 +278,14 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
               </AccordionTrigger>
               
               <AccordionContent className="p-4 bg-white dark:bg-black">
-                {result.status === "completed" && result.data ? (
+                {normalizedStatus === "completed" && result.data ? (
                   <DynamicSummary data={result.data} />
-                ) : result.status === "processing" ? (
+                ) : normalizedStatus === "processing" ? (
                   <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
                     <Clock className="h-8 w-8 mb-2 animate-spin" />
                     <p>Analysis in progress, please wait...</p>
                   </div>
-                ) : result.status === "failed" ? (
+                ) : normalizedStatus === "failed" ? (
                   <div className="flex flex-col items-center justify-center p-8 text-destructive">
                     <AlertCircle className="h-8 w-8 mb-2" />
                     <p className="font-semibold">Analysis Failed</p>
@@ -302,8 +305,8 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
             variant="ghost"
             size="icon"
             disabled={
-              result.status.toLowerCase() === 'pending' || 
-              result.status.toLowerCase() === 'processing'
+              normalizedStatus === 'pending' || 
+              normalizedStatus === 'processing'
             }
             onClick={(e) => {
               e.stopPropagation();
@@ -314,7 +317,7 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>
-      ))}
+      )})}
     </div>
   );
 }

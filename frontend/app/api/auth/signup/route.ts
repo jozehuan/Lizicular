@@ -76,7 +76,6 @@ export async function POST(request: NextRequest) {
 
     // Create a new NextResponse to allow setting cookies
     const response = NextResponse.json({
-      accessToken, // frontend expects camelCase
       user: {
         id: userMeData.id,
         email: userMeData.email,

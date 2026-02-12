@@ -494,10 +494,6 @@ export default function SpaceDetailPage({
     }
   };
 
-  useEffect(() => {
-    fetchSpaceData();
-  }, [fetchSpaceData]);
-
   const handleCreateTender = async (name: string, files: File[], currentSpaceId: string) => { // Updated to async and receive spaceId
     setIsCreatingTender(true);
     setCreateTenderError(null);

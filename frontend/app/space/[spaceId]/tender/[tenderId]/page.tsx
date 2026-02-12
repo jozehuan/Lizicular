@@ -313,7 +313,12 @@ export default function TenderAnalysisPage({
       }
 
       const updatedTender: TenderData = await response.json();
-      setTender(updatedTender);
+      // Use functional update to preserve patched analysis data
+      setTender(prevTender => ({
+        ...(prevTender || updatedTender),
+        ...updatedTender,
+        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
+      }));
       setIsEditingTenderName(false);
       setError(null);
     } catch (err: any) {
@@ -447,7 +452,12 @@ export default function TenderAnalysisPage({
       }
 
       const updatedTender = await response.json();
-      setTender(updatedTender); // Update tender state with new documents
+      // Use functional update to preserve patched analysis data
+      setTender(prevTender => ({
+        ...(prevTender || updatedTender),
+        ...updatedTender,
+        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
+      }));
       setShowAddFileDialog(false); // Close dialog
       setFilesToUpload([]); // Clear selected files
       setError(null); // Clear any main error
@@ -480,7 +490,12 @@ export default function TenderAnalysisPage({
       }
 
       const updatedTender = await response.json();
-      setTender(updatedTender); // Update tender state with document removed
+      // Use functional update to preserve patched analysis data
+      setTender(prevTender => ({
+        ...(prevTender || updatedTender),
+        ...updatedTender,
+        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
+      }));
       setError(null); // Clear any main error
     } catch (err: any) {
       setError(err.message || "An error occurred during document removal.");
@@ -687,7 +702,122 @@ export default function TenderAnalysisPage({
 
       {/* Add Files Dialog */}
       <Dialog open={showAddFileDialog} onOpenChange={setShowAddFileDialog}>
-        {/* ... Dialog content is unchanged ... */}
+        <DialogContent className="rounded-xl border-border bg-card max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add More Files</DialogTitle>
+            <DialogDescription>
+              Upload additional PDF documents to this tender.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 pt-4">
+            {uploadError && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 text-destructive text-sm">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                {uploadError}
+              </div>
+            )}
+
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const droppedFiles = Array.from(e.dataTransfer.files).filter(
+                  (file) => file.type === "application/pdf"
+                );
+                setFilesToUpload((prev) => [...prev, ...droppedFiles]);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/50"
+              aria-disabled={isUploadingFiles}
+            >
+              <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+              <p className="text-foreground font-medium">
+                Drag and drop PDF files here
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                or click to browse from your computer
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf"
+                onChange={(e) => {
+                  if (e.target.files) {
+                    setFilesToUpload((prev) => [...prev, ...Array.from(e.target.files)]);
+                  }
+                }}
+                className="hidden"
+                disabled={isUploadingFiles}
+              />
+            </div>
+
+            {filesToUpload.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-foreground">
+                  Selected Files ({filesToUpload.length})
+                </Label>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {filesToUpload.map((file, index) => (
+                    <div
+                      key={`${file.name}-${index}`}
+                      className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-5 w-5 text-red-500 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm text-foreground truncate max-w-[250px]">
+                            {file.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {(file.size / 1024).toFixed(1)} KB
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFilesToUpload((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                        className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                        aria-label={`Remove ${file.name}`}
+                        disabled={isUploadingFiles}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="pt-6">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowAddFileDialog(false);
+                setFilesToUpload([]);
+                setUploadError(null);
+              }}
+              disabled={isUploadingFiles}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddFiles}
+              disabled={filesToUpload.length === 0 || isUploadingFiles}
+            >
+              {isUploadingFiles ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                "Upload Files"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       {/* Generate Analysis Dialog */}
