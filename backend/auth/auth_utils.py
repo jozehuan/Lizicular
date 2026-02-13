@@ -260,3 +260,9 @@ def set_refresh_token_cookie(response: Response, refresh_token: str):
         secure=SECURE_COOKIES,
         path="/",
     )
+
+async def get_raw_token(token: str = Depends(oauth2_scheme)) -> str:
+    """
+    A simple dependency that extracts the raw token string from the Authorization header.
+    """
+    return token

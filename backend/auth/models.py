@@ -61,6 +61,7 @@ class AuditCategory(str, enum.Enum):
     DOCUMENT = "DOCUMENT"        # Operaciones con documentos
     SYSTEM = "SYSTEM"            # Eventos del sistema
     N8N = "N8N"                  # Eventos de workflows n8n
+    CHATBOT = "CHATBOT"          # Interacciones con el chatbot
 
 class AuditAction(str, enum.Enum):
     """Acciones específicas para cada categoría."""
@@ -100,6 +101,9 @@ class AuditAction(str, enum.Enum):
     WORKFLOW_START = "WORKFLOW_START"
     WORKFLOW_COMPLETE = "WORKFLOW_COMPLETE"
     WORKFLOW_ERROR = "WORKFLOW_ERROR"
+
+    # CHATBOT
+    CHATBOT_QUESTION = "CHATBOT_QUESTION"
 
 
 class AuditLog(Base):

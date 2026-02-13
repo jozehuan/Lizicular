@@ -31,8 +31,11 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - **Entorno:** Node.js
 - **Framework:** React / Next.js (Planificado)
 
-### **Chatbot & Automatización (Planificado)**
-- Procesamiento de lenguaje natural para asistencia en licitaciones.
+### **Chatbot (Backend)**
+- **Arquitectura de Agentes:** Se ha implementado un "meta-agente" conversacional basado en `LlamaIndex` que orquesta un conjunto de herramientas (agentes especializados).
+- **Agente de Revisión (`ReviewAgent`):** Un agente-herramienta que permite al chatbot consultar de forma segura los datos del usuario autenticado (workspaces, tenders, etc.) a través de los endpoints internos de la API.
+- **Extensibilidad:** El sistema de `AgentFactory` y `EngineAIFactory` permite añadir nuevos agentes y motores de LLM (actualmente Azure OpenAI) de forma modular.
+- **Observabilidad y Auditoría:** Todas las conversaciones se trazan con `Langfuse` para depuración y se registran en la tabla de `audit_logs` de PostgreSQL para un seguimiento completo.
 
 ### **Pruebas y Calidad**
 - **Pytest:** Suite de pruebas unitarias y de integración asíncronas.
@@ -43,27 +46,24 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 
 - `backend/main.py`: Punto de entrada de la aplicación (orquesta los routers).
 - `backend/auth/`: Lógica de autenticación.
-  - `models.py`: Modelos SQLAlchemy para usuarios y auditoría.
-  - `schemas.py`: Esquemas Pydantic para autenticación.
-  - `auth_utils.py`: Utilidades de autenticación.
-  - `routes.py`: Endpoints de autenticación y OAuth2.
-  - `redis_client.py`: Configuración del cliente Redis.
 - `backend/workspaces/`: Lógica de gestión de workspaces.
-  - `models.py`: Modelos SQLAlchemy para workspaces y miembros.
-  - `schemas.py`: Esquemas Pydantic para workspaces.
-  - `routes.py`: Endpoints CRUD para workspaces y miembros.
+- `backend/chatbot/`: Módulo del agente de IA conversacional.
+  - `routes.py`: Endpoint `/chatbot/chat`.
+  - `chat_bot_controller.py`: Lógica principal de la conversación.
+  - `agents/`: Definiciones de agentes-herramienta (ej. `review_agent.py`).
+  - `manager/`: Orquestación y ensamblaje del agente principal.
+  - `engines/`: Fábrica para los motores de LLM.
 - `backend/tenders/`: Gestión de licitaciones y documentos (NoSQL).
 - `backend/database/`: Scripts de inicialización y configuración de DB.
-- `backend/tests/`: Pruebas automatizadas (test_auth.py, test_workspaces.py, test_tenders.py).
+- `backend/tests/`: Pruebas automatizadas.
 
 ## 🔌 API Endpoints
 
 ### **Autenticación Local (en `/auth/routes.py`)**
 - `POST /auth/signup`: Registro de nuevos usuarios.
-- `POST /auth/login`: Login mediante Form Data (estándar OAuth2) + Set Refresh Cookie.
 - `POST /auth/login/json`: Login mediante payload JSON + Set Refresh Cookie.
 - `POST /auth/refresh`: Refresca el Access Token usando el Refresh Token de la cookie.
-- `POST /auth/logout`: Elimina la cookie de sesión.
+- `POST /auth/logout`: Invalida los tokens y elimina la cookie de sesión.
 
 ### **Autenticación Externa (OAuth2) (en `/auth/routes.py`)**
 - `GET /auth/{provider}/login`: Inicia el flujo de autenticación con un proveedor.
@@ -73,12 +73,15 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 ### **Usuarios (en `/auth/routes.py`)**
 - `GET /users/me`: Obtiene la información del perfil del usuario autenticado (Protegido con JWT).
 
+### **Chatbot (en `/chatbot/routes.py`)**
+- `POST /chatbot/chat`: Envía un mensaje al chatbot y recibe una respuesta (Protegido con JWT).
+
 ### **Workspaces (Colaboración) (en `/workspaces/routes.py`)**
 - `POST /workspaces/`: Crea un nuevo workspace (el creador es el OWNER).
 - `GET /workspaces/`: Lista los workspaces a los que pertenece el usuario.
 - `GET /workspaces/detailed/`: Lista los workspaces con un resumen de sus licitaciones y el rol del usuario.
 - `GET /workspaces/{workspace_id}`: Obtiene detalles de un workspace específico.
-- `PUT /workspaces/{workspace_id}`: Actualiza un workspace (solo OWNER).
+- `PUT /workspaces/{workspace_id}`: Actualiza un workspace (solo OWNER/ADMIN).
 - `DELETE /workspaces/{workspace_id}`: Elimina un workspace (solo OWNER).
 
 #### **Miembros del Workspace (en `/workspaces/routes.py`)**
@@ -91,16 +94,17 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - `POST /automations/`: Crea un nuevo automatismo.
 
 
-### **Licitaciones (Tenders) (en `/mongodb/routes.py`)**
+### **Licitaciones (Tenders) (en `/tenders/routes.py`)**
 - `POST /tenders`: Crea una nueva licitación (Requiere rol EDITOR).
 - `GET /tenders/workspace/{workspace_id}`: Lista licitaciones de un workspace.
 - `GET /tenders/{tender_id}`: Obtiene el detalle completo de una licitación.
 - `PATCH /tenders/{tender_id}`: Actualiza datos de una licitación (Requiere rol EDITOR).
 - `DELETE /tenders/{tender_id}`: Elimina una licitación (Requiere rol ADMIN).
 
-### **Análisis de Licitaciones (en `/mongodb/routes.py`)**
+### **Análisis de Licitaciones (en `/tenders/routes.py`)**
 - `POST /tenders/{tender_id}/analysis`: Añade resultados de análisis a una licitación (Requiere rol EDITOR).
 - `POST /tenders/{tender_id}/generate_analysis`: Inicia la generación de un nuevo análisis de forma asíncrona (Requiere rol EDITOR).
+- `GET /analysis-results/{analysis_id}`: Obtiene el detalle de un resultado de análisis específico (usado por el chatbot).
 - `DELETE /tenders/{tender_id}/analysis/{result_id}`: Elimina un análisis específico.
 
 ### **WebSockets**
@@ -124,6 +128,7 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 8.  **Generación de Análisis Asíncrono:** Se ha implementado un flujo de generación de análisis asíncrono con notificaciones en tiempo real vía WebSockets. El frontend puede disparar un análisis y, en lugar de esperar, recibe una respuesta inmediata. El estado y el resultado final de la tarea son enviados al frontend a través de un WebSocket, eliminando la necesidad de polling.
 9.  **Gestión de Automatismos:** Se ha añadido una tabla `autos` en PostgreSQL y endpoints en `/automations` para registrar y gestionar los automatismos externos (ej. webhooks de n8n) que pueden ser invocados.
 10. **Modelos de Datos Extensibles:** Los esquemas de Pydantic para los resultados de análisis se han actualizado para soportar estructuras de datos más complejas y anidadas, incluyendo un nuevo JSON `estimacion`.
+11. **Arquitectura de Chatbot:** Se ha implementado la base para un agente de IA conversacional, con un sistema de agentes-herramienta, autenticación de usuario y registro de auditoría.
 
 ---
 **Desarrollado para la automatización eficiente de licitaciones.**

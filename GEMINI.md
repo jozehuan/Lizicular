@@ -31,6 +31,21 @@ Esta aplicación es un proyecto para el desarrollo de una aplicación web llamad
     - `/websocket`: Lógica para WebSockets de automatismos.
       - `routes.py`: Endpoints WebSocket.
       - `connection_manager.py`: Gestión de conexiones WebSocket.
+  - `/chatbot`: Lógica para el agente de IA conversacional.
+    - `routes.py`: Define el endpoint protegido `/chat`.
+    - `chat_bot_controller.py`: Orquesta la lógica de la conversación.
+    - `bot_manager.py`: Gestiona la inicialización del agente principal.
+    - `models.py`: Modelos Pydantic para el chatbot.
+    - `/agents`: Contiene las definiciones de los agentes (herramientas).
+        - `base_agent.py`: Clase base abstracta para todos los agentes.
+        - `agent_factory.py`: Fábrica para crear instancias de agentes.
+        - `/agent_tools`: Implementaciones concretas de agentes.
+            - `review_agent.py`: Agente para consultar datos del usuario (workspaces, tenders).
+    - `/engines`: Lógica para la creación de motores de LLM.
+        - `engine_ai_factory.py`: Fábrica que selecciona el motor (actualmente solo Azure).
+    - `/manager`: Gestiona el ensamblaje de los agentes.
+        - `base_manager.py`: Clase base para los gestores de agentes.
+        - `main_manager.py`: Gestor principal que registra los agentes disponibles.
   - `/tenders`: Gestión de licitaciones y documentos.
     - `schemas.py`: Esquemas Pydantic para NoSQL.
     - `tenders_utils.py`: Operaciones CRUD y conexión.
@@ -44,11 +59,15 @@ El módulo de autenticación y seguridad es completamente funcional y ha sido ex
 1. **Seguridad Avanzada:** Optimizado con estándares modernos de Python 3.10+ y Pydantic v2.
 2. **Infraestructura de Datos:** PostgreSQL para identidad y auditoría; MongoDB planificado para licitaciones y documentos.
 3. **Control de Acceso:** Implementación completa de Workspaces para organizar la colaboración en licitaciones, incluyendo gestión de miembros y roles. Los roles definidos son "OWNER", "ADMIN", "EDITOR" y "VIEWER". Estos roles son encapsulados, lo que significa que los roles superiores heredan todos los permisos de los inferiores. La jerarquía es la siguiente: `VIEWER` (el más bajo) < `EDITOR` < `ADMIN` < `OWNER`.
-
 4. **Trazabilidad:** Sistema de auditoría universal listo para cumplimiento (compliance) y monitoreo de seguridad, ahora extendido a acciones de Workspaces.
 5. **Estrategia de Seguridad de Tokens (Revisada):** Se ha implementado una arquitectura de autenticación "Gold Standard". El `accessToken` (efímero, 15m) se almacena únicamente en la memoria del frontend (React Context) para autorizar las peticiones a la API. El `refreshToken` (larga duración, 7 días) se almacena en una cookie `HttpOnly`, `Secure` y `SameSite=Lax`, haciéndolo inaccesible a ataques XSS. Tras el login/signup, el frontend solo recibe los datos del usuario; inmediatamente después, utiliza la cookie `HttpOnly` para obtener el `accessToken` inicial, evitando la exposición de tokens en el cuerpo de la respuesta. Las API Routes de Next.js actúan como un proxy seguro para gestionar y propagar estas cookies.
 6. **Invalidación de Tokens (Redis Blacklist):** Uso de Redis para invalidar inmediatamente tokens durante el logout o rotación, garantizando que un token robado no pueda ser reutilizado.
-7. **Preparación para el Chatbot:** La estructura de auditoría y workspaces está diseñada para integrarse con los flujos de automatización y el chatbot futuro.
+7. **Arquitectura de Chatbot Avanzada:** Se ha implementado la base para un agente de IA conversacional con una arquitectura modular y extensible.
+    - **Sistema de Agentes (Tools):** El chatbot opera como un "meta-agente" que utiliza un conjunto de herramientas (otros agentes especializados). Se ha creado el `ReviewAgent`, que permite al chatbot consultar información específica del usuario (workspaces, tenders) llamando a los endpoints internos del backend de forma segura.
+    - **Gestión y Orquestación:** Un `BotManager` se encarga de construir el agente principal, registrando dinámicamente los agentes-herramienta disponibles a través de un sistema de fábricas (`AgentFactory`).
+    - **Motores de IA Flexibles:** La arquitectura incluye un `EngineAIFactory` que permite intercambiar el motor de LLM subyacente. Actualmente está configurado para usar Azure OpenAI.
+    - **Autenticación y Auditoría:** El endpoint `/chatbot/chat` está protegido y requiere autenticación de usuario. Todas las interacciones (preguntas, respuestas y errores) se registran en la tabla de `audit_logs` de PostgreSQL.
+    - **Observabilidad:** Integración con `Langfuse` para trazar y depurar las interacciones y el razonamiento del agente en tiempo real.
 8. **Generación de Análisis Asíncrono:** Se ha implementado un flujo de generación de análisis asíncrono con notificaciones en tiempo real vía WebSockets. El frontend puede iniciar una tarea de análisis y, en lugar de esperar, recibe una respuesta inmediata. El estado y el resultado final de la tarea son enviados al frontend a través de un WebSocket, eliminando la necesidad de polling.
 9. **Gestión de Automatismos:** Se ha creado una nueva tabla `autos` en PostgreSQL para almacenar información sobre los automatismos (como webhooks de n8n) y un endpoint para gestionarlos.
 10. **Modelos de Datos Flexibles:** Los modelos de Pydantic se han actualizado para soportar estructuras de datos más complejas en los resultados de los análisis, incluyendo un nuevo JSON `estimacion`.
