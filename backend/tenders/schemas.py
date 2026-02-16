@@ -371,6 +371,16 @@ class AnalysisResult(BaseModel):
         }
     )
 
+class AnalysisResultSummary(BaseModel):
+    """A summarized view of an Analysis Result for lists."""
+    id: str = Field(..., description="ID único del resultado del análisis")
+    name: str = Field(..., description="Nombre del resultado del análisis")
+    status: AnalysisStatus = Field(..., description="Estado actual del análisis")
+    created_at: datetime = Field(..., description="Fecha de creación del análisis")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 
 # ============================================================================
 # TENDER SCHEMAS (Documento principal de MongoDB)

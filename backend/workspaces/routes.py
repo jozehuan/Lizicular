@@ -133,7 +133,9 @@ async def get_user_workspaces_with_tenders(
     result = await db.execute(
         select(WorkspaceMember)
         .where(WorkspaceMember.user_id == current_user.id)
-        .options(selectinload(WorkspaceMember.workspace))
+        .options(
+            selectinload(WorkspaceMember.workspace).selectinload(Workspace.members).selectinload(WorkspaceMember.user)
+        )
     )
     memberships = result.scalars().all()
     
@@ -144,6 +146,16 @@ async def get_user_workspaces_with_tenders(
         if not workspace:
             continue
             
+        # Get members for the current workspace and format them
+        workspace_members_response = [
+            WorkspaceMemberResponse(
+                user_id=mem.user.id,
+                email=mem.user.email,
+                full_name=mem.user.full_name,
+                role=mem.role
+            ) for mem in workspace.members
+        ]
+
         tenders_from_mongo = await get_tenders_by_workspace(MongoDB.database, str(workspace.id))
         
         workspace_details = WorkspaceWithTendersResponse(
@@ -161,7 +173,8 @@ async def get_user_workspaces_with_tenders(
                     name=t.name,
                     created_at=t.created_at
                 ) for t in tenders_from_mongo
-            ]
+            ],
+            members=workspace_members_response
         )
         response_list.append(workspace_details)
         

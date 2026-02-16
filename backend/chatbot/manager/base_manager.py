@@ -31,19 +31,26 @@ class BaseManagerAgent:
         self.prompts = self.init_prompts(**kwargs)
 
     def init_prompts(self, main_agent_prompt : str = "main_agent_prompt"):
-        PROMPT_FILE = "utils/prompts.yml"
+        PROMPT_FILE = "backend/chatbot/promts.yml"
         if not os.path.exists(PROMPT_FILE):
             print(f"Warning: Prompt file not found at {PROMPT_FILE}. Using default prompts.")
-            return {"main_agent_prompt": "You are a helpful assistant."}
+            return "You are a helpful assistant."
             
         with open(PROMPT_FILE, "r") as f:
             prompts = yaml.safe_load(f)
         
+        # Handle empty or malformed YAML file, or missing prompt
+        if not prompts or main_agent_prompt not in prompts:
+            print(f"Warning: Prompt file '{PROMPT_FILE}' is empty or missing the key '{main_agent_prompt}'. Using default prompt.")
+            return "You are a helpful assistant."
+
+        prompt_template = prompts[main_agent_prompt]
+        
         if self.user_token_active:
-            prompts[main_agent_prompt] = prompts[main_agent_prompt].replace("[AIGRO_API_TOOLS_START]", "").replace("[AIGRO_API_TOOLS_END]", "")
+            prompt_template = prompt_template.replace("[AIGRO_API_TOOLS_START]", "").replace("[AIGRO_API_TOOLS_END]", "")
         else:
-            prompts[main_agent_prompt] = re.sub(r'\[AIGRO_API_TOOLS_START\].*?\[AIGRO_API_TOOLS_END\]', '', prompts[main_agent_prompt], flags=re.DOTALL)
-        return prompts[main_agent_prompt]
+            prompt_template = re.sub(r'\[AIGRO_API_TOOLS_START\].*?\[AIGRO_API_TOOLS_END\]', '', prompt_template, flags=re.DOTALL)
+        return prompt_template
         
     def register_agent(self, agent_name: str, agent_desc: str, agent_class: Type[BaseAgent], return_direct: bool = False, **kwargs):
         """Register a new agent using the agent factory"""

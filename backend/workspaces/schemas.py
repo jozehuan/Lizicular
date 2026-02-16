@@ -72,3 +72,5 @@ class WorkspaceWithTendersResponse(WorkspaceResponse):
     """A detailed workspace view including the user's role and a list of tenders."""
     user_role: str = Field(..., description="The current user's role in this workspace")
     tenders: List[TenderSummaryResponse] = Field(..., description="List of tenders within this workspace")
+    members: List[WorkspaceMemberResponse] = Field(default_factory=list, description="List of members in this workspace")
+

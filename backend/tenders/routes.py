@@ -2,7 +2,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, UploadFile, File, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Any
+from typing import List, Any, Dict
 import uuid
 import asyncio
 from starlette.responses import StreamingResponse
@@ -10,24 +10,29 @@ import io
 from bson import ObjectId
 import httpx
 from fastapi.responses import JSONResponse
+from fastapi import Query # Added Query import
+from sqlalchemy.orm import selectinload # Added selectinload import
 
 from backend.auth.database import get_db
 from backend.auth.auth_utils import get_current_active_user
 from backend.auth.audit_utils import log_tender_event, create_audit_log
-from backend.auth.models import AuditAction, AuditCategory
-from backend.workspaces.models import WorkspaceRole, WorkspaceMember
+from backend.auth.models import AuditAction, AuditCategory, User # Added User import
+from backend.workspaces.models import WorkspaceRole, WorkspaceMember # Added WorkspaceMember import
 from backend.tenders.schemas import (
     Tender, TenderCreate, TenderUpdate, AnalysisResult, 
-    GenerateAnalysisRequest, GenerateAnalysisResponse, AnalysisStatus
+    GenerateAnalysisRequest, GenerateAnalysisResponse, AnalysisStatus,
+    AnalysisResultSummary # NEW IMPORT
 )
 from backend.tenders.tenders_utils import (
     create_tender, get_tender_by_id, get_tenders_by_workspace,
     update_tender, delete_tender, add_analysis_result_to_tender,
     delete_analysis_result, MongoDB, delete_document, add_documents_to_existing_tender,
-    create_placeholder_analysis, update_analysis_result, get_analysis_by_id
+    create_placeholder_analysis, update_analysis_result, get_analysis_by_id,
+    get_all_tenders_for_user # NEW IMPORT
 )
 from backend.automations.models import Automation
 from backend.automations.websocket.connection_manager import ConnectionManager, get_connection_manager
+from backend.workspaces.schemas import TenderSummaryResponse # Added TenderSummaryResponse import
 # from backend.automations.encryption import encrypt_data
 
 
@@ -137,6 +142,42 @@ async def api_get_tenders(
         raise HTTPException(status_code=403, detail="Access denied to this workspace")
     
     return await get_tenders_by_workspace(MongoDB.database, workspace_id)
+
+
+@router.get("/find_by_name", response_model=List[TenderSummaryResponse], summary="Find tenders by name across user's workspaces")
+async def api_find_tender_by_name(
+    name: str = Query(..., description="Name of the tender to search for."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Allows searching for tenders by name across all workspaces the current user has access to.
+    """
+    # Get all workspaces the user is a member of
+    result = await db.execute(
+        select(WorkspaceMember.workspace_id)
+        .where(WorkspaceMember.user_id == current_user.id)
+    )
+    user_workspace_ids = result.scalars().all()
+
+    found_tenders: Dict[str, TenderSummaryResponse] = {} # Use dict to store unique tenders by ID
+
+    for workspace_id_uuid in user_workspace_ids:
+        workspace_id_str = str(workspace_id_uuid)
+        tenders_in_workspace = await get_tenders_by_workspace(
+            MongoDB.database, 
+            workspace_id_str, 
+            name=name # Use the new name filter
+        )
+        for tender in tenders_in_workspace:
+            # Add to dict to ensure uniqueness based on tender ID
+            found_tenders[str(tender.id)] = TenderSummaryResponse(
+                id=str(tender.id),
+                name=tender.name,
+                created_at=tender.created_at
+            )
+    
+    return list(found_tenders.values())
 
 
 @router.get(
@@ -374,6 +415,32 @@ async def api_delete_document_from_tender(
     )
 
     return updated_tender
+
+
+
+
+
+@router.get("/all_for_user", response_model=List[TenderSummaryResponse], summary="Get all tenders visible to the current user")
+async def api_get_all_tenders_for_user(
+    name: str = Query(None, description="Optional filter by tender name."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Retrieves all tenders across all workspaces that the current user has access to,
+    with an optional filter by tender name.
+    """
+    tenders = await get_all_tenders_for_user(
+        db_session=db,
+        user_id=current_user.id,
+        mongo_db=MongoDB.database,
+        name=name
+    )
+    # Convert full Tender objects to TenderSummaryResponse
+    return [
+        TenderSummaryResponse(id=str(t.id), name=t.name, created_at=t.created_at)
+        for t in tenders
+    ]
 
 
 # ============================================================================
@@ -646,3 +713,60 @@ async def get_single_analysis_result(
         analysis_doc["_id"] = str(analysis_doc["_id"])
     
     return JSONResponse(content=analysis_doc)
+
+
+@analysis_router.get("/all_for_user", response_model=List[AnalysisResultSummary], summary="Get all analysis results visible to the current user")
+async def api_get_all_analysis_results_for_user(
+    name: str = Query(None, description="Optional filter by analysis result name."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Retrieves all analysis results across all tenders and workspaces that the current user has access to,
+    with an optional filter by analysis result name.
+    """
+    # 1. Get all workspaces the user is a member of
+    result = await db.execute(
+        select(WorkspaceMember.workspace_id)
+        .where(WorkspaceMember.user_id == current_user.id)
+    )
+    user_workspace_ids = [str(uuid_obj) for uuid_obj in result.scalars().all()] # Convert UUIDs to strings
+
+    if not user_workspace_ids:
+        return [] # No workspaces, no analysis results
+
+    found_analysis_results: Dict[str, AnalysisResultSummary] = {} # Use dict to store unique results by ID
+
+    # 2. For each workspace, get all tenders (and their embedded analysis_results)
+    # This query fetches all tenders where workspace_id is in user_workspace_ids
+    # and for each tender, it filters its analysis_results
+    # MongoDB aggregation pipeline for efficient retrieval
+    pipeline = [
+        {"$match": {"workspace_id": {"$in": user_workspace_ids}}},
+        {"$unwind": "$analysis_results"}, # Deconstruct the analysis_results array
+    ]
+    
+    # Add name filter for analysis results
+    if name:
+        pipeline.append({
+            "$match": {"analysis_results.name": {"$regex": name, "$options": "i"}}
+        })
+
+    # Project to select relevant fields for AnalysisResultSummary
+    pipeline.append({
+        "$project": {
+            "id": "$analysis_results.id",
+            "name": "$analysis_results.name",
+            "status": "$analysis_results.status",
+            "created_at": "$analysis_results.created_at",
+            "_id": 0 # Exclude MongoDB's default _id
+        }
+    })
+
+    cursor = MongoDB.database.tenders.aggregate(pipeline)
+    
+    async for ar_doc in cursor:
+        # Convert to Pydantic model for validation and consistent output
+        found_analysis_results[ar_doc["id"]] = AnalysisResultSummary(**ar_doc)
+    
+    return list(found_analysis_results.values())

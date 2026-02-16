@@ -6,6 +6,10 @@ from llama_index.core.agent import FunctionCallingAgent
 class BaseAgent(ABC):
     """Abstract base class for all agents in the system."""
     
+    def __init__(self):
+        """Initializes the max_function_calls attribute."""
+        self.max_function_calls = None
+    
 
     @abstractmethod
     def get_tools(self) -> List[FunctionTool]:

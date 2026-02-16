@@ -1,6 +1,6 @@
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 from llama_index.llms.azure_openai import AzureOpenAI
-from engines.engine_ai import EngineAI
+from ..engine_ai import EngineAI
 from dotenv import load_dotenv
 import os
 
