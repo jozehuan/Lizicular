@@ -72,6 +72,80 @@ El módulo de autenticación y seguridad es completamente funcional y ha sido ex
 9. **Gestión de Automatismos:** Se ha creado una nueva tabla `autos` en PostgreSQL para almacenar información sobre los automatismos (como webhooks de n8n) y un endpoint para gestionarlos.
 10. **Modelos de Datos Flexibles:** Los modelos de Pydantic se han actualizado para soportar estructuras de datos más complejas en los resultados de los análisis, incluyendo un nuevo JSON `estimacion`.
 
+### Arquitectura de Autenticación ("Gold Standard")
+
+La aplicación implementa un flujo de autenticación moderno y seguro, a menudo denominado "Gold Standard", que separa los tokens por su función y limita su exposición. El objetivo es proteger el `refreshToken` (de larga duración) de ataques XSS, mientras se utiliza un `accessToken` (de corta duración) para las operaciones diarias.
+
+Este es el flujo detallado, desde el login hasta la gestión de la sesión:
+
+**1. Proceso de Login**
+
+1.  **Inicio (Frontend)**: El usuario introduce su email y contraseña en el formulario de login. La lógica del `AuthContext` de React llama al endpoint del proxy de Next.js en `/api/auth/login`.
+2.  **Proxy de Next.js (BFF)**: La ruta `/api/auth/login` actúa como un intermediario seguro (Backend-for-Frontend). No realiza la autenticación directamente, sino que llama al backend de FastAPI al endpoint `POST /auth/login/json`.
+3.  **Validación (Backend FastAPI)**:
+    *   El backend recibe las credenciales, las valida contra la base de datos (usando `authenticate_user`) y, si son correctas, genera dos tokens JWT:
+        *   Un **`accessToken`** de corta duración (15 minutos).
+        *   Un **`refreshToken`** de larga duración (7 días).
+4.  **Respuesta del Backend al Proxy**:
+    *   El `accessToken` se devuelve en el **cuerpo** de la respuesta JSON.
+    *   El `refreshToken` se establece en una **cookie `HttpOnly`, `Secure` y `SameSite=Lax`**. Esto es crucial, ya que el navegador almacenará esta cookie de forma segura y la enviará automáticamente en futuras peticiones, pero será inaccesible para el código JavaScript del cliente.
+5.  **Respuesta del Proxy al Cliente**:
+    *   El proxy de Next.js recibe la respuesta del backend. **No reenvía el `accessToken` al cliente**.
+    *   En su lugar, utiliza el `accessToken` recién obtenido para hacer una segunda llamada al backend, al endpoint `GET /users/me`, para obtener los datos del usuario (ID, nombre, email).
+    *   Finalmente, el proxy responde al cliente del navegador con los **datos del usuario** y, lo más importante, **propaga la cookie `Set-Cookie`** que contiene el `refreshToken`.
+
+**2. Establecimiento de la Sesión en el Cliente**
+
+1.  **Recepción de Datos (Frontend)**: El `AuthContext` recibe la respuesta del proxy con los datos del usuario, pero sin ningún token.
+2.  **Obtención del Primer `accessToken`**: Inmediatamente después del login exitoso, el `AuthContext` llama a su propia función `refreshToken()`.
+3.  **Llamada de Refresco**: La función `refreshToken()` llama al proxy `POST /api/auth/refresh`. Como el navegador ya tiene la cookie `HttpOnly` con el `refreshToken`, la envía automáticamente.
+4.  **Generación de Nuevo Token (Backend)**: El backend, a través del proxy, recibe el `refreshToken`, lo valida, y genera un **nuevo `accessToken`**.
+5.  **Almacenamiento en Memoria**: El proxy devuelve este nuevo `accessToken` al `AuthContext`, que finalmente lo almacena en el estado de React (en memoria).
+
+A partir de este momento, la aplicación tiene el `accessToken` en memoria para realizar llamadas a la API y el `refreshToken` almacenado de forma segura en una cookie.
+
+**3. Llamadas a la API Autenticadas**
+
+*   Cada vez que el frontend necesita acceder a un recurso protegido, utiliza una utilidad (`useApi`) que toma el `accessToken` del estado del `AuthContext` y lo añade a la cabecera de la petición: `Authorization: Bearer <accessToken>`.
+*   El backend valida este `accessToken` en cada llamada para autorizar la operación.
+
+**4. Renovación Automática de la Sesión (Token Refresh)**
+
+*   **Proactiva**: El `AuthContext` tiene un temporizador (`setInterval`) que se ejecuta cada 14 minutos (justo antes de que el `accessToken` de 15 minutos expire) y llama automáticamente a la función `refreshToken()` para obtener un nuevo `accessToken` y mantener la sesión activa sin que el usuario lo note.
+*   **Reactiva (Manejo de Errores)**: La utilidad `useApi` también está preparada para interceptar errores `401 Unauthorized`. Si una llamada a la API falla porque el `accessToken` ha expirado justo en el intervalo entre renovaciones, puede intentar llamar a `refreshToken()` una vez y, si tiene éxito, reintentar la llamada original fallida de forma transparente para el usuario.
+*   **Rotación de Refresh Tokens**: El endpoint de refresco del backend implementa la rotación de tokens: cada vez que se usa un `refreshToken`, se invalida (añadiéndolo a una lista negra en Redis) y se emite uno nuevo, mejorando aún más la seguridad.
+
+**5. Cierre de Sesión (Logout)**
+
+*   El `logout` llama al endpoint `POST /api/auth/logout`.
+*   El backend invalida tanto el `accessToken` como el `refreshToken` (añadiéndolos a la lista negra de Redis) y elimina la cookie del navegador.
+*   El frontend borra el usuario y el `accessToken` de su estado, completando el cierre de sesión.
+
+
+11. **Flujo de Obtención de Resultados de Análisis**: El proceso para obtener y mostrar los resultados de los análisis en la página de una licitación (`/space/{spaceId}/tender/{tenderId}`) es un flujo de varios pasos que combina la obtención de datos iniciales con un enriquecimiento posterior ("parcheo") de la información.
+    1.  **Carga Inicial de Datos (Frontend)**:
+        *   Cuando la página de la licitación se carga, el componente principal (`TenderAnalysisPage`) lanza una serie de llamadas a la API del backend de forma paralela.
+        *   La llamada más importante es a `GET /tenders/{tenderId}`. Esta petición obtiene el documento principal de la licitación desde la base de datos MongoDB.
+        *   Este documento de la licitación contiene una lista (`analysis_results`) con los metadatos de todos los análisis que se han ejecutado para esa licitación. Para optimizar el rendimiento y reducir el tamaño de la respuesta inicial, los resultados de análisis que están en estado `"completed"` **no incluyen el campo `data`** (que contiene los JSONs con el detalle del análisis), devolviéndolo como `null`.
+    2.  **Enriquecimiento de Datos o "Parcheo" (Frontend)**:
+        *   Una vez que el frontend recibe los datos iniciales, recorre la lista `analysis_results`.
+        *   Por cada resultado que tiene el estado `"completed"` pero su campo `data` es `null`, el frontend realiza una **segunda llamada** a la API, esta vez a un endpoint específico: `GET /analysis-results/{analysis.id}`.
+        *   Esta segunda petición está diseñada para obtener exclusivamente los datos completos de un único resultado de análisis, incluyendo el campo `data` que faltaba.
+        *   El frontend "parchea" la lista original, reemplazando los resultados incompletos con la versión completa que acaba de obtener.
+    3.  **Renderizado del Componente de Visualización (Frontend)**:
+        *   La lista de resultados de análisis, ya enriquecida, se pasa al componente `AnalysisDisplay`.
+        *   Este componente itera sobre la lista y crea un acordeón desplegable para cada resultado.
+        *   El contenido de cada acordeón depende del estado del análisis:
+            *   Si el estado es `"pending"` o `"processing"`, muestra un mensaje indicando que el análisis está en curso.
+            *   Si el estado es `"failed"`, muestra un mensaje de error.
+            *   Si el estado es `"completed"` y el campo `data` (obtenido en el paso de "parcheo") existe, se renderiza el componente `DynamicSummary`, que muestra de forma estructurada toda la información contenida en los JSONs del análisis.
+    4.  **Actualización en Tiempo Real (Backend y Frontend)**:
+        *   Para los análisis que están en estado `"pending"` o `"processing"`, el frontend abre una conexión **WebSocket** con el backend.
+        *   Cuando el backend termina de procesar un análisis (ya sea con éxito o con error), envía un mensaje a través del WebSocket.
+        *   Al recibir este mensaje, el frontend es notificado e **inicia de nuevo todo el proceso de recarga de datos** (vuelve al paso 1) para obtener la información más reciente y reflejar el nuevo estado del análisis.
+
+    En esencia, es un sistema de **carga en dos fases**: primero se obtiene una vista general y ligera de todos los análisis, y luego se cargan los detalles pesados (el `data`) bajo demanda solo para aquellos que ya han finalizado, optimizando así la velocidad de carga inicial de la página.
+
 
 
 ## Reglas de Oro (Instrucciones para Gemini)

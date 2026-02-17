@@ -1,4 +1,3 @@
-
 from typing import List, Any, Union
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Query
 from fastapi.responses import JSONResponse
@@ -94,7 +93,7 @@ async def create_workspace(
             collaborator_member = WorkspaceMember(
                 workspace_id=new_workspace.id,
                 user=collaborator_user,
-                role=collaborator_data.role  # Use the role from the collaborator_data
+                role=collaborator_data.role
             )
             db.add(collaborator_member)
             
@@ -108,7 +107,7 @@ async def create_workspace(
         user_id=current_user.id,
         workspace_id=new_workspace.id,
         payload={"name": new_workspace.name},
-        ip_address=request.client.host
+        ip_address=request.client.host if request.client else "unknown"
     )
     
     return new_workspace
@@ -212,7 +211,6 @@ async def get_workspace(
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
         
-    # Manually construct the response to ensure correct serialization
     member_responses = [
         WorkspaceMemberResponse(
             user_id=member.user.id,
@@ -263,7 +261,7 @@ async def update_workspace(
         user_id=current_user.id,
         workspace_id=workspace.id,
         payload=update_data,
-        ip_address=request.client.host
+        ip_address=request.client.host if request.client else "unknown"
     )
     
     return workspace
@@ -283,7 +281,6 @@ async def delete_workspace(
     if not workspace or workspace.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not an owner of the workspace")
 
-    # Delete associated tenders and their documents from MongoDB
     await delete_tenders_by_workspace(MongoDB.database, str(workspace.id))
 
     await db.delete(workspace)
@@ -295,7 +292,7 @@ async def delete_workspace(
         action=AuditAction.WORKSPACE_DELETE,
         user_id=current_user.id,
         workspace_id=workspace.id,
-        ip_address=request.client.host
+        ip_address=request.client.host if request.client else "unknown"
     )
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -315,14 +312,13 @@ async def add_workspace_member(
 
     user_to_add = await get_user_by_email(db, member_data.user_email)
     if not user_to_add:
-        # Omit the collaborator if not found, as per request
         return Response(status_code=status.HTTP_200_OK, media_type="text/plain", content=f"User with email {member_data.user_email} not found and was omitted.")
         
     res = await db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == uuid.UUID(workspace_id), WorkspaceMember.user_id == user_to_add.id))
     if res.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User is already a member of this workspace")
 
-    new_member = WorkspaceMember(workspace_id=uuid.UUID(workspace_id), user_id=user_to_add.id, role=member_data.role.upper())
+    new_member = WorkspaceMember(workspace_id=uuid.UUID(workspace_id), user_id=user_to_add.id, role=member_data.role)
     db.add(new_member)
     await db.commit()
     
@@ -332,8 +328,8 @@ async def add_workspace_member(
         action=AuditAction.MEMBER_ADD,
         user_id=current_user.id,
         workspace_id=uuid.UUID(workspace_id),
-        payload={"added_user_email": user_to_add.email, "role": new_member.role},
-        ip_address=request.client.host
+        payload={"added_user_email": user_to_add.email, "role": new_member.role.value},
+        ip_address=request.client.host if request.client else "unknown"
     )
     
     return JSONResponse(
@@ -342,7 +338,7 @@ async def add_workspace_member(
             "user_id": str(user_to_add.id),
             "email": user_to_add.email,
             "full_name": user_to_add.full_name,
-            "role": new_member.role
+            "role": new_member.role.value
         }
     )
 
@@ -366,7 +362,7 @@ async def list_workspace_members(
             user_id=member.user.id,
             email=member.user.email,
             full_name=member.user.full_name,
-            role=member.role
+            role=member.role.value
         ) for member in members
     ]
 
@@ -393,10 +389,10 @@ async def update_workspace_member(
     if current_member.role == WorkspaceRole.ADMIN:
         if member_to_update.role in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
             raise HTTPException(status_code=403, detail="Admins cannot change the role of an Owner or another Admin.")
-        if member_data.role.upper() in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+        if member_data.role in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
             raise HTTPException(status_code=403, detail="Admins cannot assign an Owner or Admin role.")
 
-    member_to_update.role = member_data.role.upper()
+    member_to_update.role = member_data.role
     await db.commit()
     
     await create_audit_log(
@@ -405,15 +401,15 @@ async def update_workspace_member(
         action=AuditAction.ROLE_CHANGE,
         user_id=current_user.id,
         workspace_id=uuid.UUID(workspace_id),
-        payload={"updated_user_id": str(member_to_update.user_id), "new_role": member_to_update.role},
-        ip_address=request.client.host
+        payload={"updated_user_id": str(member_to_update.user_id), "new_role": member_to_update.role.value},
+        ip_address=request.client.host if request.client else "unknown"
     )
     
     return WorkspaceMemberResponse(
         user_id=member_to_update.user.id,
         email=member_to_update.user.email,
         full_name=member_to_update.user.full_name,
-        role=member_to_update.role
+        role=member_to_update.role.value
     )
 
 @router.delete("/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -447,7 +443,7 @@ async def remove_workspace_member(
         user_id=current_user.id,
         workspace_id=uuid.UUID(workspace_id),
         payload={"removed_user_id": str(user_id)},
-        ip_address=request.client.host
+        ip_address=request.client.host if request.client else "unknown"
     )
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)

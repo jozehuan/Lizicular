@@ -1,36 +1,47 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { clearRefreshTokenCookie } from "@/lib/auth"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    // Call backend /auth/logout
-    // The refresh token cookie will be sent automatically
+    // Manually get the refresh_token from the incoming request's cookies
+    const refreshToken = request.cookies.get("refresh_token")?.value
+    const accessToken = request.headers.get("Authorization")
+
+    // Call backend /auth/logout, forwarding the token
     const backendLogoutResponse = await fetch(`${BACKEND_URL}/auth/logout`, {
       method: "POST",
-      credentials: "include", // Ensure cookies are sent
+      headers: {
+        // Forward both tokens to ensure backend can blacklist them
+        ...(refreshToken && { "Cookie": `refresh_token=${refreshToken}` }),
+        ...(accessToken && { "Authorization": accessToken }),
+      },
     })
+    
+    // Even if the backend call fails, we proceed to clear the client-side cookie.
+    // The primary goal is to log the user out of the frontend.
+    if (!backendLogoutResponse.ok) {
+        console.warn(`Backend logout failed with status: ${backendLogoutResponse.status}`);
+        // We don't block the logout, but this indicates a potential issue,
+        // like the backend session not being properly invalidated in Redis.
+    }
 
     // Create a new NextResponse to allow clearing cookies
     const response = NextResponse.json({ success: true })
 
-    // Clear the refresh token cookie from the frontend's side using the updated function
+    // Clear the refresh token cookie from the browser
     clearRefreshTokenCookie(response)
-    
-    // Check if the backend also tried to clear its cookie and propagate it if necessary
-    // This is more of a defensive measure; ideally, the above clearRefreshTokenCookie should suffice for the frontend.
-    const setCookieHeader = backendLogoutResponse.headers.get("set-cookie");
-    if (setCookieHeader) {
-      response.headers.append("set-cookie", setCookieHeader);
-    }
 
     return response
   } catch (error) {
     console.error("Logout API error:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
+    // Even in case of a total failure, try to log the user out of the frontend
+    const response = NextResponse.json(
+      { error: "Internal server error during logout" },
       { status: 500 }
     )
+    clearRefreshTokenCookie(response);
+    return response;
   }
 }
