@@ -45,11 +45,11 @@ class WorkspaceDetailResponse(WorkspaceResponse):
 class WorkspaceMemberAdd(BaseModel):
     """Schema for adding a member to a workspace."""
     user_email: EmailStr = Field(..., description="Email of the user to add")
-    role: str = Field(..., description="Role to assign to the user (e.g., 'EDITOR', 'VIEWER')")
+    role: WorkspaceRole = Field(..., description="Role to assign to the user (e.g., 'EDITOR', 'VIEWER')")
 
 class WorkspaceMemberUpdate(BaseModel):
     """Schema for updating a member's role in a workspace."""
-    role: str = Field(..., description="New role for the workspace member")
+    role: WorkspaceRole = Field(..., description="New role for the workspace member")
 
 class WorkspaceMemberResponse(BaseModel):
     """Schema for responding with workspace member information."""

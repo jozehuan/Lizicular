@@ -49,33 +49,37 @@ export function AuthForm() {
   const handleLogin = async (values: LoginFormValues) => {
     setError("")
     setIsSubmitting(true)
-
-    const result = await login(values.email, values.password)
-    
-    if (result.success) {
-      router.push("/dashboard")
-    } else {
-      setError(result.error || "Login failed")
-      loginForm.reset() // Reset form on failure
+    try {
+      const result = await login(values.email, values.password)
+      if (result.success) {
+        router.push("/dashboard")
+      } else {
+        setError(result.error || "Login failed")
+        loginForm.setValue("password", "") // Clear only password
+      }
+    } catch (err) {
+      setError("An unexpected error occurred")
+    } finally {
+      setIsSubmitting(false)
     }
-    
-    setIsSubmitting(false)
   }
 
   const handleSignup = async (values: SignupFormValues) => {
     setError("")
     setIsSubmitting(true)
-
-    const result = await signup(values.name, values.email, values.password)
-    
-    if (result.success) {
-      router.push("/dashboard")
-    } else {
-      setError(result.error || "Signup failed")
-      signupForm.reset() // Reset form on failure
+    try {
+      const result = await signup(values.name, values.email, values.password)
+      if (result.success) {
+        router.push("/dashboard")
+      } else {
+        setError(result.error || "Signup failed")
+        signupForm.setValue("password", "") // Clear only password
+      }
+    } catch (err) {
+      setError("An unexpected error occurred")
+    } finally {
+      setIsSubmitting(false)
     }
-    
-    setIsSubmitting(false)
   }
 
   if (isLoading && !user) { // Show loader only on initial load
