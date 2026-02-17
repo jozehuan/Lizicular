@@ -1,6 +1,6 @@
 
 from typing import List, Any, Union
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -116,13 +116,16 @@ async def create_workspace(
 @router.get("/", response_model=List[WorkspaceResponse])
 async def get_user_workspaces(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    name: str = Query(None, description="Optional filter by workspace name.") # NEW PARAMETER
 ):
-    result = await db.execute(
-        select(Workspace).join(WorkspaceMember).where(
-            WorkspaceMember.user_id == current_user.id
-        )
+    query = select(Workspace).join(WorkspaceMember).where(
+        WorkspaceMember.user_id == current_user.id
     )
+    if name:
+        query = query.where(Workspace.name.ilike(f"%{name}%")) # Add name filter
+        
+    result = await db.execute(query)
     return result.scalars().all()
 
 @router.get("/detailed", response_model=List[WorkspaceWithTendersResponse])
@@ -171,7 +174,9 @@ async def get_user_workspaces_with_tenders(
                 TenderSummaryResponse(
                     id=str(t.id),
                     name=t.name,
-                    created_at=t.created_at
+                    created_at=t.created_at,
+                    workspace_id=workspace.id,
+                    workspace_name=workspace.name
                 ) for t in tenders_from_mongo
             ],
             members=workspace_members_response

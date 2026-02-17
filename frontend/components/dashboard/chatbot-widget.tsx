@@ -1,46 +1,18 @@
 "use client"
 
-import React from "react"
-
-import { useState, useRef, useEffect } from "react"
+import React, { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { X, Send, MessageCircle, Loader2, Trash2 } from "lucide-react"
-import { useApi } from "@/lib/api"
-
-import ReactMarkdown from 'react-markdown';
-
-// Frontend-specific message format
-interface DisplayMessage {
-  id: string
-  content: string
-  role: "user" | "assistant"
-  timestamp: Date
-}
-
-// Backend-expected message format
-interface ApiMessage {
-    role: "user" | "assistant"
-    content: string
-}
-
-const initialMessages: DisplayMessage[] = [
-  {
-    id: "welcome",
-    content: "Hello! I'm Lizi, your tender management assistant. How can I help you today?",
-    role: "assistant",
-    timestamp: new Date(),
-  },
-];
+import { useChatbot } from "@/lib/chatbot-context"
+import ReactMarkdown from 'react-markdown'
 
 export function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false)
-  const [messages, setMessages] = useState<DisplayMessage[]>(initialMessages)
   const [inputValue, setInputValue] = useState("")
-  const [isReplying, setIsReplying] = useState(false) // To track loading state
+  const { messages, isReplying, sendMessage, clearHistory } = useChatbot()
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const api = useApi();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -48,60 +20,13 @@ export function ChatbotWidget() {
 
   useEffect(() => {
     if (isOpen) {
-      // A short delay ensures the element is visible before scrolling
       setTimeout(scrollToBottom, 100);
     }
   }, [messages, isOpen])
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || isReplying) return
-
-    const userMessage: DisplayMessage = {
-      id: Date.now().toString(),
-      content: inputValue,
-      role: "user",
-      timestamp: new Date(),
-    }
-
-    // Add user message to UI immediately and set loading state
-    setMessages((prev) => [...prev, userMessage])
-    setInputValue("")
-    setIsReplying(true)
-
-    try {
-        // Map frontend message format to the format expected by the backend
-        const messageHistory: ApiMessage[] = [...messages, userMessage].map(msg => ({
-            role: msg.role,
-            content: msg.content
-        }));
-
-        // Call the backend API
-        const response = await api.post<{ answer: string }>("/chatbot/chat", {
-            messages: messageHistory,
-        });
-
-        // Create the agent's response message
-        const agentMessage: DisplayMessage = {
-            id: (Date.now() + 1).toString(),
-            content: response.answer,
-            role: "assistant",
-            timestamp: new Date(),
-        }
-        setMessages((prev) => [...prev, agentMessage])
-
-    } catch (error) {
-        console.error("Failed to get response from chatbot:", error);
-        const errorMessage: DisplayMessage = {
-            id: (Date.now() + 1).toString(),
-            content: "Sorry, I'm having trouble connecting. Please try again later.",
-            role: "assistant",
-            timestamp: new Date(),
-        }
-        setMessages((prev) => [...prev, errorMessage])
-    } finally {
-        // Reset loading state
-        setIsReplying(false)
-    }
+  const handleSendMessage = () => {
+    sendMessage(inputValue);
+    setInputValue(""); // Clear input after sending
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -110,12 +35,6 @@ export function ChatbotWidget() {
       handleSendMessage()
     }
   }
-
-  const handleClearHistory = () => {
-    setMessages(initialMessages);
-    setInputValue("");
-    setIsReplying(false); // Ensure loading state is reset
-  };
 
   return (
     <div className="fixed bottom-6 right-6 z-50">
@@ -138,9 +57,9 @@ export function ChatbotWidget() {
                     {message.role === "user" ? (
                         <p className="text-sm leading-relaxed">{message.content}</p>
                     ) : (
-                        <div className="text-sm leading-relaxed prose dark:prose-invert"> {/* Wrapper div */}
+                        <div className="text-sm leading-relaxed prose dark:prose-invert prose-ul:list-disc prose-ul:pl-4 prose-ol:list-decimal prose-ol:pl-4"> 
                             <ReactMarkdown>
-                                {message.content}
+                                {message.content.replace(/\\n/g, '\n')}
                             </ReactMarkdown>
                         </div>
                     )}
@@ -177,7 +96,7 @@ export function ChatbotWidget() {
                   <span className="sr-only">Send message</span>
                 </Button>
                 <Button
-                  onClick={handleClearHistory}
+                  onClick={clearHistory}
                   size="icon"
                   className="h-10 w-10 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
                   disabled={isReplying}

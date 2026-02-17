@@ -1,6 +1,7 @@
 import os
 import httpx
-from typing import List
+import yaml
+from typing import List, Any
 from llama_index.core.tools import FunctionTool
 from pydantic import Field
 
@@ -35,74 +36,18 @@ class ReviewAgent(BaseAgent):
             owner_name = "Unknown Owner"
             collaborators_info = []
 
-            # Find owner and other members
             for member in ws.get('members', []):
-                if str(member['user_id']) == str(ws['owner_id']): # Compare UUIDs as strings
+                if str(member['user_id']) == str(ws['owner_id']):
                     owner_name = member['full_name']
                 else:
                     collaborators_info.append(f"{member['full_name']} ({member['role']})")
             
-            output += f"- **{ws['name']}** (ID: {ws['id']}): Owned by {owner_name}. Your role: {ws['user_role']}. Contains {len(ws['tenders'])} tenders."
+            output += f"- **{ws['name']}** (ID: {ws['id']}): Owned by {owner_name}. Your role: {ws['user_role']}. Contains {len(ws['tenders'])} tenders.\n"
             
             if collaborators_info:
-                output += f" Collaborators: {', '.join(collaborators_info)}."
-            
-            output += "\n"
+                output += f"  Collaborators: {', '.join(collaborators_info)}.\n"
         return output
 
-    def _format_tenders(self, tenders: List[dict]) -> str:
-        """Formats a list of tenders into a human-readable string."""
-        if not tenders:
-            return "No tenders found in this workspace."
-            
-        output = "Tenders in this workspace:"
-        for tender in tenders:
-            output += f"- **{tender['name']}** (ID: {tender['id']}): Status: {tender['status']}. Contains {len(tender.get('documents', []))} documents."
-        return output
-
-    def _format_tender_details(self, tender: dict) -> str:
-        """Formats the details of a single tender into a human-readable string."""
-        if not tender:
-            return "Could not retrieve tender details."
-        
-        doc_list = "\n  ".join([f"- {doc['filename']}" for doc in tender.get('documents', [])])
-        analysis_list = "\n  ".join([f"- {res['name']} (ID: {res['id']}, Status: {res['status']})" for res in tender.get('analysis_results', [])])
-
-        output = f"""
-        **Tender Details for: {tender['name']}** (ID: {tender['id']})
-        - **Status:** {tender['status']}
-        - **Created:** {tender['created_at']}
-        
-        **Documents ({len(tender.get('documents', []))}):**
-          {doc_list or "No documents."}
-          
-        **Analysis Results ({len(tender.get('analysis_results', []))}):**
-          {analysis_list or "No analysis results."}
-        """
-        return output.strip()
-
-    def _format_analysis_details(self, result: dict) -> str:
-        """Formats the details of a single analysis result into a human-readable string."""
-        if not result:
-            return "Could not retrieve analysis result details."
-
-        status = result.get("status", "unknown").lower()
-        output = f"**Analysis Result: {result.get('name', 'N/A')}** (ID: {result.get('_id')})\n- **Status:** {status.capitalize()}\n"
-
-        if status == "completed" and result.get("data"):
-            # Simple formatting of the data payload for the LLM
-            output += "- **Result Data:**\n"
-            for key, value in result["data"].items():
-                if isinstance(value, list) and len(value) > 0:
-                    output += f"  - {key.replace('_', ' ').capitalize()}: {len(value)} items\n"
-                elif isinstance(value, dict):
-                    output += f"  - {key.replace('_', ' ').capitalize()}: [Complex object]\n"
-                else:
-                    output += f"  - {key.replace('_', ' ').capitalize()}: {value}\n"
-        elif status == "failed":
-            output += f"- **Error:** {result.get('error_message', 'No details provided.')}\n"
-        
-        return output.strip()
 
     async def _make_request(self, method: str, endpoint: str) -> dict | List:
         """Helper to make authenticated async requests to the backend."""
@@ -110,10 +55,9 @@ class ReviewAgent(BaseAgent):
         async with httpx.AsyncClient(follow_redirects=True) as client:
             try:
                 response = await client.request(method, f"{BACKEND_URL}{endpoint}", headers=headers)
-                response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+                response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
-                # Provide more context on HTTP errors
                 print(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
                 raise
             except Exception as e:
@@ -122,55 +66,14 @@ class ReviewAgent(BaseAgent):
 
     async def list_my_workspaces(self) -> str:
         """
-        Retrieves a list of all workspaces the current user is a member of,
-        including the user's role and the number of tenders in each workspace.
+        Retrieves a list of all workspaces the current user is a member of.
         """
         workspaces = await self._make_request("GET", "/workspaces/detailed")
         return self._format_workspaces(workspaces)
 
-    async def list_tenders_in_workspace(self, workspace_id: str) -> str:
-        """
-        Retrieves a list of all tenders within a specific workspace, identified by its ID.
-        """
-        tenders = await self._make_request("GET", f"/tenders/workspace/{workspace_id}")
-        return self._format_tenders(tenders)
-
-    async def get_tender_details(self, tender_id: str) -> str:
-        """
-        Retrieves the full details for a specific tender, including its documents and analysis results.
-        """
-        tender = await self._make_request("GET", f"/tenders/{tender_id}")
-        return self._format_tender_details(tender)
-
-    async def get_analysis_result_details(self, analysis_id: str) -> str:
-        """
-        Retrieves the status and data for a specific analysis result. If the analysis is complete,
-        it will return the summarized data, which can then be used to answer questions.
-        """
-        result = await self._make_request("GET", f"/analysis-results/{analysis_id}")
-        return self._format_analysis_details(result)
-
-    async def find_tender_by_name(self, tender_name: str) -> str:
-        """
-        Searches for tenders by name across all workspaces the user has access to.
-        Returns a list of matching tenders with their IDs, names, and creation dates.
-        If multiple tenders with the same name exist, all will be returned.
-        """
-        tenders = await self._make_request("GET", f"/tenders/find_by_name?name={tender_name}")
-        
-        if not tenders:
-            return f"No tenders found with the name '{tender_name}'."
-        
-        output = f"Found {len(tenders)} tender(s) matching '{tender_name}':\n"
-        for tender in tenders:
-            output += f"- **{tender['name']}** (ID: {tender['id']}) created on {tender['created_at']}.\n"
-        return output
-
     async def list_all_tenders(self, tender_name: str | None = None) -> str:
         """
-        Retrieves a list of all tenders across all workspaces that the user has access to,
-        with an optional filter by tender name. This is useful for answering general questions
-        about tenders or when the user asks to filter tenders by a specific criteria (e.g., name, status).
+        Retrieves a list of all tenders across all workspaces that the user has access to.
         """
         endpoint = "/tenders/all_for_user"
         if tender_name:
@@ -183,88 +86,186 @@ class ReviewAgent(BaseAgent):
                 return f"No tenders found matching the name '{tender_name}'."
             return "You do not have any tenders across your workspaces."
         
-        output = f"Here are the tenders across your workspaces:\n"
+        output = "Here are the tenders across your workspaces:\n"
         for tender in tenders:
-            output += f"- **{tender['name']}** (ID: {tender['id']}) created on {tender['created_at']}.\n"
+            output += f"- **{tender['name']}** in workspace **{tender['workspace_name']}** (ID: {tender['id']})\n"
         return output
 
-    async def list_all_analysis_results(self, analysis_name: str | None = None) -> str:
-        """
-        Retrieves a list of all analysis results across all tenders and workspaces that the user has access to,
-        with an optional filter by analysis result name. This is useful for answering general questions
-        about analysis results or when the user asks to filter analysis results by a specific criteria.
-        """
-        endpoint = "/analysis-results/all_for_user"
-        if analysis_name:
-            endpoint += f"?name={analysis_name}"
-
-        results = await self._make_request("GET", endpoint)
-
-        if not results:
-            if analysis_name:
-                return f"No analysis results found matching the name '{analysis_name}'."
-            return "You do not have any analysis results across your tenders and workspaces."
+    def _format_tenders_in_workspace(self, tenders: List[dict], workspace_name: str) -> str:
+        """Formats a list of tenders from a specific workspace into a human-readable string."""
+        if not tenders:
+            return f"No tenders found in the workspace '{workspace_name}'."
         
-        output = f"Found {len(results)} analysis result(s):\n"
-        for res in results:
-            output += f"- **{res['name']}** (ID: {res['id']}) Status: {res['status']} created on {res['created_at']}.\n"
+        output = f"Here are the tenders in workspace '**{workspace_name}**':\n"
+        for tender in tenders:
+            output += f"- **{tender['name']}** (ID: {tender['id']}) - Created on: {tender['created_at']}\n"
         return output
 
+    async def list_tenders_in_workspace(self, workspace_name: str) -> str:
+        """
+        Lists all tenders within a specific workspace by its name.
+        """
+        all_workspaces = await self._make_request("GET", "/workspaces/detailed")
+        
+        target_workspace = None
+        for ws in all_workspaces:
+            if ws['name'].lower() == workspace_name.lower():
+                target_workspace = ws
+                break
+        
+        if not target_workspace:
+            return f"Workspace '{workspace_name}' not found or you don't have access."
+
+        workspace_id = target_workspace['id']
+        tenders = await self._make_request("GET", f"/tenders/workspace/{workspace_id}")
+        
+        return self._format_tenders_in_workspace(tenders, target_workspace['name'])
+
+    def _format_any_data(self, data: Any, level: int = 1) -> str:
+        """Recursively formats any dictionary or list into a Markdown string."""
+        indent = "  " * level
+        output = ""
+        if isinstance(data, dict):
+            for key, value in data.items():
+                key_str = f"**{str(key).replace('_', ' ').capitalize()}**"
+                if isinstance(value, (dict, list)):
+                    output += f"{indent}- {key_str}:\n"
+                    output += self._format_any_data(value, level + 1)
+                elif value is not None:
+                    output += f"{indent}- {key_str}: {value}\n"
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, (dict, list)):
+                    output += f"{indent}-\n"
+                    output += self._format_any_data(item, level + 1)
+                elif item is not None:
+                    output += f"{indent}- {item}\n"
+        else:
+            if data is not None:
+                output += f"{indent}{data}\n"
+        return output
+
+    async def _format_analysis_results(self, tender_name: str, analysis_results: List[dict]) -> str:
+        """Formats a list of analysis results into a human-readable string."""
+        if not analysis_results:
+            return f"No analysis results found for tender '{tender_name}'."
+
+        output = f"Analysis results for tender '**{tender_name}**':\n"
+        for i, result in enumerate(analysis_results):
+            output += f"\n--- Analysis {i+1} ---\n"
+            output += f"- **Name:** {result.get('name', 'N/A')}\n"
+            output += f"- **Status:** {result.get('status', 'N/A')}\n"
+            
+            if result.get('status', '').lower() == 'completed':
+                analysis_id = result.get('id')
+                if analysis_id:
+                    try:
+                        full_data = await self._make_request("GET", f"/analysis-results/{analysis_id}")
+                        output += "- **Result Data:**\n"
+                        data = full_data.get('data')
+                        if not data:
+                            output += "  - No detailed data available.\n"
+                        else:
+                            output += self._format_any_data(data, level=1)
+                    except Exception as e:
+                        output += "  - Could not retrieve full analysis data.\n"
+            elif result.get('status', '').lower() == 'failed':
+                output += f"- **Error:** {result.get('error_message', 'No error details provided.')}\n"
+        return output
+
+    async def get_tender_analysis_details(self, tender_name: str, analysis_name: str | None = None) -> str:
+        """
+        Retrieves analysis results for a specific tender, optionally filtered by analysis name.
+        """
+        matching_tenders = await self._make_request("GET", f"/tenders/find_by_name?name={tender_name}")
+        
+        if not matching_tenders:
+            return f"No tender found with the name '{tender_name}'."
+        
+        if len(matching_tenders) > 1:
+            id_list = ", ".join([f"'{t['name']}' (ID: {t['id']})" for t in matching_tenders])
+            return f"Multiple tenders found matching '{tender_name}'. Please be more specific. Found: {id_list}"
+
+        tender_id = matching_tenders[0]['id']
+        tender_details = await self._make_request("GET", f"/tenders/{tender_id}")
+        
+        all_results = tender_details.get('analysis_results', [])
+        
+        if analysis_name:
+            filtered_results = [r for r in all_results if r.get('name', '').lower() == analysis_name.lower()]
+            if not filtered_results:
+                return f"No analysis named '{analysis_name}' found in tender '{tender_name}'."
+            return await self._format_analysis_results(tender_details['name'], filtered_results)
+
+        return await self._format_analysis_results(tender_details['name'], all_results)
+
+    def _format_single_analysis_result(self, result_data: dict) -> str:
+        """Formats a single, detailed analysis result into a human-readable string."""
+        output = f"Details for analysis '**{result_data.get('name', 'N/A')}**':\n"
+        output += f"- **Status:** {result_data.get('status', 'N/A')}\n"
+        output += f"- **Procedure:** {result_data.get('procedure_name', 'N/A')}\n"
+        output += f"- **Created At:** {result_data.get('created_at', 'N/A')}\n"
+
+        if result_data.get('status', '').lower() == 'completed':
+            output += "\n- **Result Data:**\n"
+            data = result_data.get('data')
+            if not data:
+                output += "  - No detailed data available.\n"
+            else:
+                output += self._format_any_data(data, level=1)
+        elif result_data.get('status', '').lower() == 'failed':
+            output += f"- **Error:** {result_data.get('error_message', 'No error details provided.')}\n"
+        else:
+            output += "This analysis is not yet complete. Only full data for 'COMPLETED' analyses can be shown.\n"
+        
+        return output
+
+    async def get_analysis_result_by_name(self, analysis_name: str) -> str:
+        """
+        Finds a specific analysis result by name and shows its detailed information.
+        """
+        matching_results = await self._make_request("GET", f"/analysis-results/all_for_user?name={analysis_name}")
+        
+        if not matching_results:
+            return f"No analysis result found with the name '{analysis_name}'."
+        
+        if len(matching_results) > 1:
+            id_list = ", ".join([f"'{r['name']}' (ID: {r['id']})" for r in matching_results])
+            return f"Multiple analysis results found. Please be more specific. Found: {id_list}"
+        
+        analysis_summary = matching_results[0]
+        analysis_id = analysis_summary['id']
+        
+        if analysis_summary.get('status', '').lower() == 'completed':
+            try:
+                full_details = await self._make_request("GET", f"/analysis-results/{analysis_id}")
+                return self._format_single_analysis_result(full_details)
+            except Exception:
+                return f"Found completed analysis '{analysis_name}', but could not retrieve its full details."
+        else:
+            return self._format_single_analysis_result(analysis_summary)
 
     def get_tools(self) -> List[FunctionTool]:
         """
         Exposes the agent's capabilities as a list of tools for an LLM to use.
         """
         return [
-            FunctionTool.from_defaults(
-                self.list_my_workspaces,
-                description="Use this tool to get a list of all of the user's workspaces and their basic details, including owner, your role, and number of tenders."
-            ),
-            FunctionTool.from_defaults(
-                self.list_tenders_in_workspace,
-                description="Use this tool to list all tenders within a specific workspace. You must provide the workspace_id (UUID format)."
-            ),
-            FunctionTool.from_defaults(
-                self.list_all_tenders,
-                description="Use this tool to retrieve a comprehensive list of all tenders the user has access to, across all their workspaces. You can optionally filter by a tender name. Use this when the user asks general questions about tenders or to filter them by name."
-            ),
-            FunctionTool.from_defaults(
-                self.find_tender_by_name,
-                description="Use this tool to search for tenders by name across all user's workspaces. This is useful when the user only provides a tender name and you need to find its ID. Provide the full tender name for best results."
-            ),
-            FunctionTool.from_defaults(
-                self.list_all_analysis_results,
-                description="Use this tool to retrieve a comprehensive list of all analysis results the user has access to, across all their tenders and workspaces. You can optionally filter by an analysis name. Use this when the user asks general questions about analysis results or to filter them by name."
-            ),
-            FunctionTool.from_defaults(
-                self.get_tender_details,
-                description="Use this tool to get all the details about a single tender, including its documents and analysis results. You must provide the tender_id (UUID format)."
-            ),
-            FunctionTool.from_defaults(
-                self.get_analysis_result_details,
-                description="Use this tool to check the status of an analysis and get the results if it is complete. You must provide the analysis_id (UUID format)."
-            ),
+            FunctionTool.from_defaults(self.list_my_workspaces, description="Get a list of all of the user's workspaces and their basic details."),
+            FunctionTool.from_defaults(self.list_all_tenders, description="Retrieve a list of all tenders the user has access to, across all workspaces."),
+            FunctionTool.from_defaults(self.list_tenders_in_workspace, description="List all tenders within a specific workspace. The user must provide the name of the workspace."),
+            FunctionTool.from_defaults(self.get_tender_analysis_details, description="Get analysis results for a specific tender. You must provide the tender's name. If the user also specifies an analysis name, provide that too."),
+            FunctionTool.from_defaults(self.get_analysis_result_by_name, description="Find a specific analysis result by its name and get its detailed information."),
         ]
 
     def get_system_prompt(self) -> str:
         """
-        Returns the system prompt that defines the agent's behavior.
+        Returns the system prompt that defines the agent's behavior by loading it from a YAML file.
         """
-        return (
-            "You are a specialized assistant for retrieving and filtering information about a user's professional data related to tenders and workspaces. "
-            "Your primary function is to answer questions by utilizing the provided tools. "
-            "If a question falls outside the scope of managing tenders, workspaces, or analysis results, politely decline to answer and remind the user that your purpose is to assist only with application-related data. Do not engage in general conversation or provide information unrelated to the application's context. "
-            "Respond in a concise and clear manner, adapting the information to the user's specific question and context. "
-            "Only provide the necessary details, avoiding unnecessary verbosity. "
-            "Always format your responses using Markdown for clarity, including line breaks, bold text (e.g., **important**), and italics (e.g., *example*), to make them easy to read for the user. "
-            "Follow these steps to answer questions about tenders and analysis results: "
-            "1. If the user asks a general question about **tenders** (e.g., 'list all tenders', 'what tenders do I have?') or asks to filter tenders by name, ALWAYS use the 'list_all_tenders' tool first. "
-            "2. If the user asks a general question about **analysis results** (e.g., 'list all analysis results', 'what analysis do I have?') or asks to filter analysis results by name, ALWAYS use the 'list_all_analysis_results' tool first. "
-            "3. Once you receive a list of tenders or analysis results, you are responsible for filtering this information based on the user's query and providing a concise summary. "
-            "4. If the user refers to a **tender** by name (e.g., 'TICKET22'), but doesn't explicitly ask to list *all* matching tenders, you should first use the 'find_tender_by_name' tool to get its ID. If multiple tenders match the name, clarify with the user which one they mean by ID before proceeding. "
-            "5. If the user refers to an **analysis result** by name, but doesn't explicitly ask to list *all* matching analysis results, you should first use the 'find_analysis_result_by_name' tool to get its ID. If multiple analysis results match the name, clarify with the user which one they mean by ID before proceeding. "
-            "6. Once you have a specific tender ID, use 'get_tender_details' to retrieve its full information. "
-            "7. Once you have a specific analysis ID, use 'get_analysis_result_details' to retrieve its full information. "
-            "8. For questions about workspaces, use 'list_my_workspaces' or 'list_tenders_in_workspace' as appropriate. "
-            "Do not guess or make up information. Always rely on the tool outputs. Prioritize providing relevant details concisely and directly addressing the user's intent."
-        )
+        prompt_file = "backend/chatbot/prompts.yml"
+        try:
+            with open(prompt_file, "r") as f:
+                prompts = yaml.safe_load(f)
+                return prompts.get("review_agent_instructions", "You are a helpful assistant.")
+        except (IOError, yaml.YAMLError) as e:
+            print(f"Warning: Could not read or parse {prompt_file}. Error: {e}. Using default prompt.")
+            return "You are a helpful assistant."

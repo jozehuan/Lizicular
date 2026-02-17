@@ -67,6 +67,9 @@ class TenderSummaryResponse(BaseModel):
     id: str = Field(..., description="MongoDB ObjectId of the tender")
     name: str = Field(..., description="Name of the tender")
     created_at: datetime = Field(..., description="Timestamp of tender creation")
+    workspace_id: UUID = Field(..., description="ID of the workspace this tender belongs to")
+    workspace_name: str = Field(..., description="Name of the workspace this tender belongs to")
+
 
 class WorkspaceWithTendersResponse(WorkspaceResponse):
     """A detailed workspace view including the user's role and a list of tenders."""

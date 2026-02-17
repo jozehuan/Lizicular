@@ -31,7 +31,7 @@ class BaseManagerAgent:
         self.prompts = self.init_prompts(**kwargs)
 
     def init_prompts(self, main_agent_prompt : str = "main_agent_prompt"):
-        PROMPT_FILE = "backend/chatbot/promts.yml"
+        PROMPT_FILE = "backend/chatbot/prompts.yml"
         if not os.path.exists(PROMPT_FILE):
             print(f"Warning: Prompt file not found at {PROMPT_FILE}. Using default prompts.")
             return "You are a helpful assistant."

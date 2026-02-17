@@ -7,9 +7,16 @@ class MainManagerAgent(BaseManagerAgent):
         super().__init__(bot_settings)
         
         # If a token is provided, it means a user is logged in.
-        # Register the ReviewAgent to give the chatbot access to the user's data.
+        # We instantiate ReviewAgent and add its tools and prompt to the main agent.
         if self.user_token_active: # This flag checks if a token exists.
-            self.register_agent("review_agent",
-                                "Use this agent to get information about the user's personal workspaces, tenders, and analysis results. Use it when the user asks 'what are my workspaces?' or 'show me my tenders'.",
-                                ReviewAgent,
-                                token=bot_settings.user_token)  
+            review_agent_instance = ReviewAgent(token=bot_settings.user_token)
+            
+            # Get tools and prompt from the review agent instance
+            review_tools = review_agent_instance.get_tools()
+            review_prompt_instructions = review_agent_instance.get_system_prompt()
+            
+            # Add the review agent's tools to the main agent's tool list
+            self.agent_list.extend(review_tools)
+            
+            # Append the detailed instructions for using those tools to the main prompt
+            self.prompts += "\n\n" + review_prompt_instructions

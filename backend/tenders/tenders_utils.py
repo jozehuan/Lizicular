@@ -68,6 +68,19 @@ class MongoDB:
         await tenders.create_index("analysis_results.id")
 
 
+async def get_mongo_db() -> AsyncIOMotorDatabase:
+    """
+    FastAPI dependency to get the MongoDB database instance.
+    Raises a 503 error if the database is not available.
+    """
+    if MongoDB.database is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection is not available."
+        )
+    return MongoDB.database
+
+
 # ============================================================================
 # TENDER CRUD OPERATIONS
 # ============================================================================
@@ -794,6 +807,8 @@ from sqlalchemy import select as SQLAlchemySelect # Use alias to avoid conflict
 from backend.workspaces.models import WorkspaceMember # Needed to get user's workspaces
 # import uuid # Already imported at the top
 
+from pydantic import ValidationError
+
 async def get_all_tenders_for_user(
     db_session: SQLAlchemyAsyncSession, # Use alias
     user_id: Any, # Should be uuid.UUID
@@ -839,8 +854,13 @@ async def get_all_tenders_for_user(
     
     tenders = []
     async for tender_doc in cursor:
-        tender_doc["id"] = str(tender_doc["_id"])
-        tenders.append(Tender(**tender_doc)) # Use Tender pydantic model for validation/conversion
+        try:
+            tender_doc["id"] = str(tender_doc["_id"])
+            tenders.append(Tender(**tender_doc)) # Use Tender pydantic model for validation/conversion
+        except ValidationError as e:
+            # If a tender in the DB is malformed and fails validation, log it and skip it
+            print(f"WARNING: Skipping tender with ID {tender_doc.get('_id')} due to validation error: {e}")
+            continue
     
     return tenders
 
