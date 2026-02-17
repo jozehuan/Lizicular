@@ -2,7 +2,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, UploadFile, File, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Any
+from typing import List, Any, Dict
 import uuid
 import asyncio
 from starlette.responses import StreamingResponse
@@ -10,25 +10,30 @@ import io
 from bson import ObjectId
 import httpx
 from fastapi.responses import JSONResponse
+from fastapi import Query
+from sqlalchemy.orm import selectinload
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from backend.auth.database import get_db
 from backend.auth.auth_utils import get_current_active_user
 from backend.auth.audit_utils import log_tender_event, create_audit_log
-from backend.auth.models import AuditAction, AuditCategory
-from backend.workspaces.models import WorkspaceRole, WorkspaceMember
+from backend.auth.models import AuditAction, AuditCategory, User
+from backend.workspaces.models import Workspace, WorkspaceRole, WorkspaceMember
 from backend.tenders.schemas import (
     Tender, TenderCreate, TenderUpdate, AnalysisResult, 
-    GenerateAnalysisRequest, GenerateAnalysisResponse, AnalysisStatus
+    GenerateAnalysisRequest, GenerateAnalysisResponse, AnalysisStatus,
+    AnalysisResultSummary
 )
 from backend.tenders.tenders_utils import (
     create_tender, get_tender_by_id, get_tenders_by_workspace,
     update_tender, delete_tender, add_analysis_result_to_tender,
-    delete_analysis_result, MongoDB, delete_document, add_documents_to_existing_tender,
-    create_placeholder_analysis, update_analysis_result, get_analysis_by_id
+    delete_analysis_result, delete_document, add_documents_to_existing_tender,
+    create_placeholder_analysis, update_analysis_result, get_analysis_by_id,
+    get_all_tenders_for_user, get_mongo_db
 )
 from backend.automations.models import Automation
 from backend.automations.websocket.connection_manager import ConnectionManager, get_connection_manager
-# from backend.automations.encryption import encrypt_data
+from backend.workspaces.schemas import TenderSummaryResponse
 
 
 router = APIRouter(prefix="/tenders", tags=["Tenders"])
@@ -39,75 +44,53 @@ async def check_workspace_permission(
     db: AsyncSession,
     required_role: WorkspaceRole = WorkspaceRole.EDITOR
 ) -> bool:
-    """
-    Verifica si un usuario tiene el rol necesario en un workspace.
-    Permite el acceso si el usuario tiene el rol requerido o uno superior (OWNER > ADMIN > EDITOR).
-    """
-    # Definir jerarquía de roles
     role_hierarchy = {
         WorkspaceRole.OWNER: 4,
         WorkspaceRole.ADMIN: 3,
         WorkspaceRole.EDITOR: 2,
         WorkspaceRole.VIEWER: 1
     }
-    
-    result = await db.execute(
-        select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == uuid.UUID(workspace_id), # Ensure UUID type match
-            WorkspaceMember.user_id == user_id
+    try:
+        member_result = await db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == uuid.UUID(workspace_id),
+                WorkspaceMember.user_id == user_id
+            )
         )
-    )
-    member = result.scalar_one_or_none()
-    
-    if not member:
+        member = member_result.scalar_one_or_none()
+        if not member:
+            return False
+        return role_hierarchy.get(member.role, 0) >= role_hierarchy.get(required_role, 0)
+    except (ValueError, TypeError):
         return False
-        
-    return role_hierarchy.get(member.role, 0) >= role_hierarchy.get(required_role, 0)
-
 
 # ============================================================================
 # TENDERS ENDPOINTS (MongoDB)
 # ============================================================================
 
-@router.post(
-    "/",
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a new tender"
-)
+@router.post("/", status_code=status.HTTP_201_CREATED, summary="Create a new tender")
 async def api_create_tender(
-    request: Request, # Moved to the beginning
+    request: Request,
     name: str = Form(...),
     workspace_id: str = Form(...),
     description: str | None = Form(None),
-    files: List[UploadFile] = File(default_factory=list), # Accept list of files
+    files: List[UploadFile] = File(default_factory=list),
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """Crea una licitación si el usuario es EDITOR o superior en el workspace y permite cargar documentos."""
     if not await check_workspace_permission(workspace_id, current_user.id, db):
-        await create_audit_log(
-            db=db,
-            category=AuditCategory.TENDER,
-            action=AuditAction.TENDER_CREATE,
-            user_id=current_user.id,
-            workspace_id=uuid.UUID(workspace_id),
-            success=False,
-            error_message="Permission denied",
-            ip_address=request.client.host
-        )
         raise HTTPException(status_code=403, detail="Permission denied in this workspace")
     
-    # Create TenderCreate object from form data
     tender_create_data = TenderCreate(
         name=name,
         description=description,
         workspace_id=workspace_id,
-        created_by=str(current_user.id) # Add created_by from current user
+        created_by=str(current_user.id)
     )
     
-    new_tender = await create_tender(MongoDB.database, tender_create_data, files, str(current_user.id)) # Pass files and created_by to create_tender
+    new_tender = await create_tender(mongo_db, tender_create_data, files, str(current_user.id))
     
-    # Log audit
     await log_tender_event(
         db=db,
         action=AuditAction.TENDER_CREATE,
@@ -122,35 +105,101 @@ async def api_create_tender(
     return new_tender
 
 
-@router.get(
-    "/workspace/{workspace_id}",
-    response_model=List[Tender],
-    summary="List tenders in workspace"
-)
+@router.get("/workspace/{workspace_id}", response_model=List[Tender], summary="List tenders in workspace")
 async def api_get_tenders(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """Lista licitaciones si el usuario tiene acceso al workspace."""
     if not await check_workspace_permission(workspace_id, current_user.id, db, WorkspaceRole.VIEWER):
         raise HTTPException(status_code=403, detail="Access denied to this workspace")
     
-    return await get_tenders_by_workspace(MongoDB.database, workspace_id)
+    return await get_tenders_by_workspace(mongo_db, workspace_id)
 
 
-@router.get(
-    "/{tender_id}",
-    response_model=Tender,
-    summary="Get tender details"
-)
+@router.get("/find_by_name", response_model=List[TenderSummaryResponse], summary="Find tenders by name across user's workspaces")
+async def api_find_tender_by_name(
+    name: str = Query(..., description="Name of the tender to search for."),
+    db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    tenders = await get_all_tenders_for_user(db, current_user.id, mongo_db, name=name)
+    if not tenders:
+        return []
+
+    workspace_ids = {uuid.UUID(t.workspace_id) for t in tenders if t.workspace_id}
+    if not workspace_ids:
+        return []
+        
+    workspace_results = await db.execute(
+        select(Workspace.id, Workspace.name).where(Workspace.id.in_(workspace_ids))
+    )
+    workspace_map = {str(ws_id): ws_name for ws_id, ws_name in workspace_results}
+
+    return [
+        TenderSummaryResponse(
+            id=str(t.id),
+            name=t.name,
+            created_at=t.created_at,
+            workspace_id=uuid.UUID(t.workspace_id),
+            workspace_name=workspace_map.get(t.workspace_id, "Unknown Workspace")
+        )
+        for t in tenders if t.workspace_id in workspace_map
+    ]
+
+
+@router.get("/all_for_user", response_model=List[TenderSummaryResponse], summary="Get all tenders visible to the current user")
+async def api_get_all_tenders_for_user(
+    name: str = Query(None, description="Optional filter by tender name."),
+    db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    tenders = await get_all_tenders_for_user(db, current_user.id, mongo_db, name=name)
+    if not tenders:
+        return []
+
+    valid_workspace_ids = set()
+    for t in tenders:
+        try:
+            valid_workspace_ids.add(uuid.UUID(t.workspace_id))
+        except (ValueError, TypeError):
+            print(f"WARNING: Tender with ID {t.id} has an invalid or null workspace_id '{t.workspace_id}'. Skipping.")
+            continue
+
+    if not valid_workspace_ids:
+        return []
+
+    workspace_results = await db.execute(
+        select(Workspace.id, Workspace.name).where(Workspace.id.in_(valid_workspace_ids))
+    )
+    workspace_map = {str(ws_id): ws_name for ws_id, ws_name in workspace_results}
+
+    response_list = []
+    for t in tenders:
+        if t.workspace_id in workspace_map:
+            response_list.append(
+                TenderSummaryResponse(
+                    id=str(t.id),
+                    name=t.name,
+                    created_at=t.created_at,
+                    workspace_id=uuid.UUID(t.workspace_id),
+                    workspace_name=workspace_map.get(t.workspace_id, "Unknown Workspace")
+                )
+            )
+    return response_list
+
+
+@router.get("/{tender_id}", response_model=Tender, summary="Get tender details")
 async def api_get_tender(
     tender_id: str,
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """Obtiene detalles de una licitación verificando permisos en su workspace."""
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
     
@@ -159,30 +208,24 @@ async def api_get_tender(
     
     return tender
 
-
-@router.patch(
-    "/{tender_id}",
-    response_model=Tender,
-    summary="Update tender"
-)
+@router.patch("/{tender_id}", response_model=Tender, summary="Update tender")
 async def api_update_tender(
     tender_id: str,
     update_data: TenderUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """Actualiza una licitación si el usuario es EDITOR o superior."""
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
     
     if not await check_workspace_permission(tender.workspace_id, current_user.id, db):
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    updated = await update_tender(MongoDB.database, tender_id, update_data)
+    updated = await update_tender(mongo_db, tender_id, update_data)
     
-    # Log audit
     await log_tender_event(
         db=db,
         action=AuditAction.TENDER_UPDATE,
@@ -196,27 +239,23 @@ async def api_update_tender(
     return updated
 
 
-@router.delete(
-    "/{tender_id}",
-    summary="Delete tender"
-)
+@router.delete("/{tender_id}", summary="Delete tender")
 async def api_delete_tender(
     tender_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """Elimina una licitación si el usuario es ADMIN o superior."""
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
     
     if not await check_workspace_permission(tender.workspace_id, current_user.id, db, WorkspaceRole.ADMIN):
         raise HTTPException(status_code=403, detail="Permission denied (Admin required)")
     
-    success = await delete_tender(MongoDB.database, tender_id)
+    success = await delete_tender(mongo_db, tender_id)
     
-    # Log audit
     if success:
         await log_tender_event(
             db=db,
@@ -231,227 +270,162 @@ async def api_delete_tender(
     return {"status": "deleted" if success else "failed"}
 
 
-@router.get(
-    "/{tender_id}/documents/{document_id}/download",
-    summary="Download a tender document"
-)
+@router.get("/{tender_id}/documents/{document_id}/download", summary="Download a tender document")
 async def api_download_tender_document(
     tender_id: str,
     document_id: str,
-    db_session: AsyncSession = Depends(get_db), # Renamed to avoid conflict with MongoDB.database
+    db_session: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """
-    Permite descargar un documento específico de una licitación,
-    si el usuario tiene al menos el rol de VIEWER en el workspace.
-    """
-    # 1. Verify tender existence and user permissions
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
 
     if not await check_workspace_permission(tender.workspace_id, current_user.id, db_session, WorkspaceRole.VIEWER):
         raise HTTPException(status_code=403, detail="Access denied to this tender's documents")
 
-    # 2. Find the document metadata in the tender's documents list
     doc_metadata = next((doc for doc in tender.documents if doc.id == document_id), None)
     if not doc_metadata:
         raise HTTPException(status_code=404, detail="Document not found within this tender")
 
-    # 3. Retrieve the actual file content from the 'tender_files' collection
-    file_record = await MongoDB.database.tender_files.find_one({"_id": ObjectId(document_id)})
+    file_record = await mongo_db.tender_files.find_one({"_id": ObjectId(document_id)})
     if not file_record or not file_record.get("data"):
         raise HTTPException(status_code=404, detail="File content not found")
 
     file_content = file_record["data"]
-    filename = doc_metadata.filename
-    content_type = doc_metadata.content_type
-
-    # 4. Return as a StreamingResponse for download
-    import io
-
+    
     return StreamingResponse(
         io.BytesIO(file_content),
-        media_type=content_type,
-        headers={
-            "Content-Disposition": f"attachment; filename=\"{filename}\"",
-            "Content-Length": str(len(file_content))
-        }
+        media_type=doc_metadata.content_type,
+        headers={"Content-Disposition": f"attachment; filename=\"{doc_metadata.filename}\""}
     )
 
 
-@router.post(
-    "/{tender_id}/documents",
-    response_model=Tender, # Return the updated tender object
-    summary="Add document(s) to a tender"
-)
+@router.post("/{tender_id}/documents", response_model=Tender, summary="Add document(s) to a tender")
 async def api_add_documents_to_tender(
     tender_id: str,
     request: Request,
-    files: List[UploadFile] = File(...), # Expect a list of files
+    files: List[UploadFile] = File(...),
     db_session: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """
-    Añade uno o más documentos a una licitación existente.
-    Requiere rol EDITOR o superior en el workspace.
-    """
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
 
     if not await check_workspace_permission(tender.workspace_id, current_user.id, db_session, WorkspaceRole.EDITOR):
         raise HTTPException(status_code=403, detail="Permission denied (Editor role required)")
 
-    # Call a helper function to add documents and update the tender
-    updated_tender = await add_documents_to_existing_tender(
-        MongoDB.database,
-        tender_id,
-        files
-    )
+    updated_tender = await add_documents_to_existing_tender(mongo_db, tender_id, files)
 
-    # Log audit
     await log_tender_event(
         db=db_session,
-        action=AuditAction.TENDER_UPDATE, # Consider a more specific action like DOCUMENT_ADD
+        action=AuditAction.TENDER_UPDATE,
         tender_id=tender_id,
-        workspace_id=uuid.UUID(tender.workspace_id) if isinstance(tender.workspace_id, str) else tender.workspace_id,
+        workspace_id=uuid.UUID(tender.workspace_id),
         user_id=current_user.id,
         request=request,
         details=f"Added {len(files)} document(s) to tender",
         payload={"added_files": [file.filename for file in files]}
     )
-
     return updated_tender
 
 
-@router.delete(
-    "/{tender_id}/documents/{document_id}",
-    response_model=Tender,
-    summary="Delete a document from a tender"
-)
+@router.delete("/{tender_id}/documents/{document_id}", response_model=Tender, summary="Delete a document from a tender")
 async def api_delete_document_from_tender(
     tender_id: str,
     document_id: str,
     request: Request,
     db_session: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """
-    Elimina un documento de una licitación.
-    Requiere rol EDITOR o superior en el workspace.
-    """
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
 
     if not await check_workspace_permission(tender.workspace_id, current_user.id, db_session, WorkspaceRole.EDITOR):
         raise HTTPException(status_code=403, detail="Permission denied (Editor role required)")
-
-    # Find the document to get its filename for the audit log
+    
     document_to_delete = next((doc for doc in tender.documents if doc.id == document_id), None)
     if not document_to_delete:
         raise HTTPException(status_code=404, detail="Document not found in this tender")
     
     deleted_filename = document_to_delete.filename
 
-    updated_tender = await delete_document(
-        MongoDB.database,
-        tender_id,
-        document_id
-    )
+    updated_tender = await delete_document(mongo_db, tender_id, document_id)
 
-    # Log audit
     await log_tender_event(
         db=db_session,
-        action=AuditAction.TENDER_UPDATE, # Or a specific DOCUMENT_DELETE
+        action=AuditAction.TENDER_UPDATE,
         tender_id=tender_id,
-        workspace_id=uuid.UUID(tender.workspace_id) if isinstance(tender.workspace_id, str) else tender.workspace_id,
+        workspace_id=uuid.UUID(tender.workspace_id),
         user_id=current_user.id,
         request=request,
         details=f"Deleted document from tender",
         payload={"deleted_file": deleted_filename}
     )
-
     return updated_tender
 
-
-# ============================================================================
-# ANALYSIS RESULTS ENDPOINTS (MongoDB)
-# ============================================================================
-
-@router.post(
-    "/{tender_id}/analysis",
-    response_model=Tender,
-    summary="Add analysis result to tender",
-    tags=["Analysis"]
-)
+@router.post("/{tender_id}/analysis", response_model=Tender, tags=["Analysis"])
 async def api_add_analysis(
     tender_id: str,
     analysis_result: AnalysisResult,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """Añade un resultado de análisis si el usuario es EDITOR o superior."""
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
     
     if not await check_workspace_permission(tender.workspace_id, current_user.id, db):
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    result = await add_analysis_result_to_tender(MongoDB.database, tender_id, analysis_result)
+    result = await add_analysis_result_to_tender(mongo_db, tender_id, analysis_result)
     
-    # Log audit
     await log_tender_event(
         db=db,
         action=AuditAction.TENDER_ANALYZE,
         tender_id=tender_id,
-        workspace_id=uuid.UUID(tender.workspace_id) if isinstance(tender.workspace_id, str) else tender.workspace_id,
+        workspace_id=uuid.UUID(tender.workspace_id),
         user_id=current_user.id,
         request=request,
         analysis_name=analysis_result.name
     )
-    
     return result
 
 
-@router.delete(
-    "/{tender_id}/analysis/{result_id}",
-    response_model=Tender,
-    summary="Remove analysis result from tender",
-    tags=["Analysis"]
-)
+@router.delete("/{tender_id}/analysis/{result_id}", response_model=Tender, tags=["Analysis"])
 async def api_delete_analysis(
     tender_id: str,
     result_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """Elimina un resultado de análisis si el usuario es EDITOR o superior en el workspace."""
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
     
-    # Verificación explícita de rol EDITOR o superior
     if not await check_workspace_permission(tender.workspace_id, current_user.id, db, WorkspaceRole.EDITOR):
         raise HTTPException(status_code=403, detail="Permission denied (Editor role required)")
     
-    result = await delete_analysis_result(MongoDB.database, tender_id, result_id)
+    result = await delete_analysis_result(mongo_db, tender_id, result_id)
     
-    # Log audit
     await log_tender_event(
         db=db,
-        action=AuditAction.TENDER_UPDATE, # Or a generic update
+        action=AuditAction.TENDER_UPDATE,
         tender_id=tender_id,
-        workspace_id=uuid.UUID(tender.workspace_id) if isinstance(tender.workspace_id, str) else tender.workspace_id,
+        workspace_id=uuid.UUID(tender.workspace_id),
         user_id=current_user.id,
         request=request,
         details=f"Deleted analysis result {result_id}"
     )
-    
     return result
 
 async def run_analysis_in_background(
@@ -464,10 +438,6 @@ async def run_analysis_in_background(
     client_ip: str | None,
     manager_instance: ConnectionManager,
 ):
-    """
-    This function is executed in the background to generate the analysis.
-    It creates its own database session for audit logging.
-    """
     await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.PROCESSING)
     
     async with httpx.AsyncClient() as client:
@@ -477,17 +447,12 @@ async def run_analysis_in_background(
                 json={"tender_id": tender_id, "analysis_id": analysis_id},
                 timeout=900.0,
             )
-            # Raise an exception for non-2xx status codes.
             response.raise_for_status()
 
-            # Poll for the analysis result document to be created by the n8n workflow.
-            # This avoids a race condition where we check for the doc before it's written.
             verified_analysis_doc = None
-            max_retries = 15  # 15 retries * 2 seconds sleep = 30 seconds total wait time
+            max_retries = 15
             for _ in range(max_retries):
-                verified_analysis_doc = await MongoDB.database.analysis_results.find_one(
-                    {"_id": analysis_id}
-                )
+                verified_analysis_doc = await MongoDB.database.analysis_results.find_one({"_id": analysis_id})
                 if verified_analysis_doc:
                     break
                 await asyncio.sleep(2)
@@ -495,18 +460,9 @@ async def run_analysis_in_background(
             if not verified_analysis_doc:
                 raise Exception("Analysis result not found in database after successful automation run (30s timeout).")
 
-            # The 'data' for the embedded analysis result should come from this verified document.
             analysis_data = verified_analysis_doc.get("data")
-
-            await update_analysis_result(
-                MongoDB.database,
-                tender_id,
-                analysis_id,
-                status=AnalysisStatus.COMPLETED,
-                data=analysis_data
-            )
+            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.COMPLETED, data=analysis_data)
             
-            # Create a new DB session for audit logging
             async for db in get_db():
                 await log_tender_event(
                     db=db,
@@ -518,60 +474,30 @@ async def run_analysis_in_background(
                     details="Generated analysis with automation",
                     payload={"automation_id": automation_id}
                 )
-
         except (httpx.HTTPStatusError, httpx.RequestError) as e:
             error_message = f"Error from automation service: {e}"
-            await update_analysis_result(
-                MongoDB.database,
-                tender_id,
-                analysis_id,
-                status=AnalysisStatus.FAILED,
-                error_message=error_message,
-            )
-            await manager_instance.send_to_analysis_id(
-                {"status": "FAILED", "error": error_message},
-                analysis_id
-            )
+            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
+            await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
         except Exception as e:
-            # Catch any other unexpected errors during the process
             error_message = f"An unexpected error occurred in background task: {e}"
-            await update_analysis_result(
-                MongoDB.database,
-                tender_id,
-                analysis_id,
-                status=AnalysisStatus.FAILED,
-                error_message=error_message,
-            )
-            await manager_instance.send_to_analysis_id(
-                {"status": "FAILED", "error": error_message},
-                analysis_id
-            )
+            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
+            await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
         else:
-            # This block runs only if the try block completes with no exceptions.
             analysis_result = await get_analysis_by_id(MongoDB.database, tender_id, analysis_id)
-            await manager_instance.send_to_analysis_id(
-                {"status": "COMPLETED", "result": analysis_result.model_dump()},
-                analysis_id
-            )
+            await manager_instance.send_to_analysis_id({"status": "COMPLETED", "result": analysis_result.model_dump()}, analysis_id)
 
-@router.post(
-    "/{tender_id}/generate_analysis",
-    summary="Generate analysis for a tender",
-    status_code=status.HTTP_202_ACCEPTED,
-    response_model=GenerateAnalysisResponse,
-    tags=["Analysis"]
-)
+@router.post("/{tender_id}/generate_analysis", status_code=status.HTTP_202_ACCEPTED, response_model=GenerateAnalysisResponse, tags=["Analysis"])
 async def api_generate_analysis(
     tender_id: str,
     analysis_request: GenerateAnalysisRequest,
     background_tasks: BackgroundTasks,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user),
     manager_instance: ConnectionManager = Depends(get_connection_manager)
 ):
-    """Generates an analysis for a tender by calling an automation service."""
-    tender = await get_tender_by_id(MongoDB.database, tender_id)
+    tender = await get_tender_by_id(mongo_db, tender_id)
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
 
@@ -582,18 +508,11 @@ async def api_generate_analysis(
     if not automation:
         raise HTTPException(status_code=404, detail="Automation not found")
 
-    placeholder = await create_placeholder_analysis(
-        MongoDB.database,
-        tender_id,
-        analysis_request.automation_id,
-        str(current_user.id),
-        name=analysis_request.name
-    )
+    placeholder = await create_placeholder_analysis(mongo_db, tender_id, analysis_request.automation_id, str(current_user.id), name=analysis_request.name)
 
     if not placeholder:
         raise HTTPException(status_code=500, detail="Could not create analysis placeholder")
 
-    # Pass primitive types to the background task, not request-scoped objects
     background_tasks.add_task(
         run_analysis_in_background,
         tender_id=tender_id,
@@ -611,38 +530,72 @@ async def api_generate_analysis(
         analysis_id=placeholder.id
     )
 
-# ============================================================================
-# STANDALONE ANALYSIS RESULTS ENDPOINTS
-# ============================================================================
-
 analysis_router = APIRouter(prefix="/analysis-results", tags=["Analysis"])
 
 @analysis_router.get("/{analysis_id}")
 async def get_single_analysis_result(
     analysis_id: str,
     db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """
-    Retrieves a single analysis result from the 'analysis_results' collection,
-    ensuring the user has permission to view it by checking the parent tender.
-    """
-    # Find the tender that embeds this analysis result to check permissions
-    tender = await MongoDB.database.tenders.find_one({"analysis_results.id": analysis_id})
+    tender = await mongo_db.tenders.find_one({"analysis_results.id": analysis_id})
     if not tender:
         raise HTTPException(status_code=404, detail="No tender associated with this analysis result found")
 
-    # Check user's permission on the workspace
     if not await check_workspace_permission(tender["workspace_id"], current_user.id, db, WorkspaceRole.VIEWER):
         raise HTTPException(status_code=403, detail="Access denied to this analysis result")
 
-    # Fetch the actual analysis result from its own collection
-    analysis_doc = await MongoDB.database.analysis_results.find_one({"_id": analysis_id})
+    analysis_doc = await mongo_db.analysis_results.find_one({"_id": analysis_id})
     if not analysis_doc:
         raise HTTPException(status_code=404, detail="Analysis result not found in its collection")
 
-    # Clean up the document for JSON response
     if "_id" in analysis_doc:
         analysis_doc["_id"] = str(analysis_doc["_id"])
     
     return JSONResponse(content=analysis_doc)
+
+
+@analysis_router.get("/all_for_user", response_model=List[AnalysisResultSummary], summary="Get all analysis results visible to the current user")
+async def api_get_all_analysis_results_for_user(
+    name: str = Query(None, description="Optional filter by analysis result name."),
+    db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    result = await db.execute(
+        select(WorkspaceMember.workspace_id)
+        .where(WorkspaceMember.user_id == current_user.id)
+    )
+    user_workspace_ids = [str(uuid_obj) for uuid_obj in result.scalars().all()]
+
+    if not user_workspace_ids:
+        return []
+
+    pipeline = [
+        {"$match": {"workspace_id": {"$in": user_workspace_ids}}},
+        {"$unwind": "$analysis_results"},
+    ]
+    
+    if name:
+        pipeline.append({
+            "$match": {"analysis_results.name": {"$regex": name, "$options": "i"}}
+        })
+
+    pipeline.append({
+        "$project": {
+            "id": "$analysis_results.id",
+            "name": "$analysis_results.name",
+            "status": "$analysis_results.status",
+            "created_at": "$analysis_results.created_at",
+            "_id": 0
+        }
+    })
+
+    cursor = mongo_db.tenders.aggregate(pipeline)
+    
+    found_analysis_results: Dict[str, AnalysisResultSummary] = {}
+    async for ar_doc in cursor:
+        found_analysis_results[ar_doc["id"]] = AnalysisResultSummary(**ar_doc)
+    
+    return list(found_analysis_results.values())

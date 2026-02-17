@@ -68,6 +68,19 @@ class MongoDB:
         await tenders.create_index("analysis_results.id")
 
 
+async def get_mongo_db() -> AsyncIOMotorDatabase:
+    """
+    FastAPI dependency to get the MongoDB database instance.
+    Raises a 503 error if the database is not available.
+    """
+    if MongoDB.database is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection is not available."
+        )
+    return MongoDB.database
+
+
 # ============================================================================
 # TENDER CRUD OPERATIONS
 # ============================================================================
@@ -175,10 +188,11 @@ async def get_tenders_by_workspace(
     skip: int = 0,
     limit: int = 100,
     sort_by: str = "created_at",
-    sort_order: int = -1  # -1 descendente, 1 ascendente
+    sort_order: int = -1,  # -1 descendente, 1 ascendente
+    name: str | None = None # NEW PARAMETER
 ) -> List[Tender]:
     """
-    Obtiene todas las licitaciones de un workspace.
+    Obtiene todas las licitaciones de un workspace, con opción de filtrar por nombre.
     
     Args:
         db: Base de datos MongoDB
@@ -187,12 +201,18 @@ async def get_tenders_by_workspace(
         limit: Número máximo de registros a devolver
         sort_by: Campo por el que ordenar
         sort_order: Orden (1 ascendente, -1 descendente)
+        name: Opcional, filtra licitaciones por nombre (búsqueda parcial insensible a mayúsculas/minúsculas)
         
     Returns:
         Lista de licitaciones
     """
+    query_filter = {"workspace_id": workspace_id}
+    if name:
+        # Añadir filtro por nombre con expresión regular insensible a mayúsculas/minúsculas
+        query_filter["name"] = {"$regex": name, "$options": "i"} # Case-insensitive partial match
+
     cursor = db.tenders.find(
-        {"workspace_id": workspace_id}
+        query_filter
     ).sort(sort_by, sort_order).skip(skip).limit(limit)
     
     tenders = []
@@ -766,15 +786,81 @@ async def get_tenders_by_extraction_status(
     Returns:
         Lista de licitaciones
     """
-    cursor = db.tenders.find({
+    query_filter = {
         "workspace_id": workspace_id,
         "documents.extraction_status": extraction_status
-    })
+    }
+    
+    cursor = db.tenders.find(query_filter).sort([("created_at", -1)]) # Default sort for consistency
     
     tenders = []
     async for tender in cursor:
         tender["id"] = str(tender["_id"])
         tenders.append(Tender(**tender))
+    
+    return tenders
+
+
+# Add new imports for get_all_tenders_for_user
+from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession # Use alias to avoid conflict
+from sqlalchemy import select as SQLAlchemySelect # Use alias to avoid conflict
+from backend.workspaces.models import WorkspaceMember # Needed to get user's workspaces
+# import uuid # Already imported at the top
+
+from pydantic import ValidationError
+
+async def get_all_tenders_for_user(
+    db_session: SQLAlchemyAsyncSession, # Use alias
+    user_id: Any, # Should be uuid.UUID
+    mongo_db: Any, # Should be AsyncIOMotorDatabase
+    name: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+    sort_by: str = "created_at",
+    sort_order: int = -1,
+) -> List[Tender]:
+    """
+    Obtiene todas las licitaciones a las que un usuario tiene acceso, con opción de filtrar por nombre.
+    
+    Args:
+        db_session: Sesión de base de datos PostgreSQL (para obtener workspaces del usuario)
+        user_id: ID del usuario actual
+        mongo_db: Instancia de la base de datos MongoDB
+        name: Opcional, filtra licitaciones por nombre (búsqueda parcial insensible a mayúsculas/minúsculas)
+        # ... (otros parámetros de paginación/ordenación)
+        
+    Returns:
+        Lista de licitaciones
+    """
+    # 1. Obtener todos los IDs de workspaces a los que el usuario tiene acceso
+    result = await db_session.execute(
+        SQLAlchemySelect(WorkspaceMember.workspace_id) # Use alias
+        .where(WorkspaceMember.user_id == user_id)
+    )
+    user_workspace_ids = [str(uuid_obj) for uuid_obj in result.scalars().all()] # Convert UUIDs to strings
+
+    if not user_workspace_ids:
+        return [] # No workspaces, no tenders
+
+    # 2. Construir el filtro para MongoDB
+    query_filter = {"workspace_id": {"$in": user_workspace_ids}}
+    if name:
+        query_filter["name"] = {"$regex": name, "$options": "i"} # Case-insensitive partial match
+
+    # 3. Ejecutar la consulta en MongoDB
+    cursor = mongo_db.tenders.find(
+        query_filter
+    ).sort(sort_by, sort_order).skip(skip).limit(limit)
+    
+    tenders = []
+    async for tender_doc in cursor:
+        try:
+            tender_doc["id"] = str(tender_doc["_id"])
+            tenders.append(Tender(**tender_doc)) # Use Tender pydantic model for validation/conversion
+        except ValidationError as e:
+            # If a tender in the DB is malformed and fails validation, log it and skip it
+            print(f"WARNING: Skipping tender with ID {tender_doc.get('_id')} due to validation error: {e}")
+            continue
     
     return tenders
 

@@ -29,12 +29,18 @@ from backend.auth.routes import router as auth_router, users_router
 from backend.automations.routes import router as automations_router  # Import automations router
 from backend.automations.websocket.routes import router as websocket_router
 from backend.tenders.tenders_utils import MongoDB
+from backend.chatbot.routes import router as chatbot_router
+from langfuse import get_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for application startup and shutdown.
     """
+    # Startup: Langfuse
+    langfuse = get_client()
+    print("Langfuse inicializado correctamente")
+
     # Startup: PostgreSQL
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -53,9 +59,11 @@ async def lifespan(app: FastAPI):
 
     yield
     
-    # Shutdown: Dispose engines
+    # Shutdown: Dispose engines and clients
     await engine.dispose()
     await MongoDB.close_database_connection()
+    langfuse.shutdown()
+    print("Langfuse cerrado correctamente")
 
 
 # Initialize FastAPI application
@@ -91,6 +99,7 @@ app.include_router(workspaces_router)
 app.include_router(automations_router)
 app.include_router(websocket_router)
 app.include_router(analysis_router)
+app.include_router(chatbot_router)
 
 
 @app.get(

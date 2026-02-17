@@ -1,31 +1,17 @@
 "use client"
 
-import React from "react"
-
-import { useState, useRef, useEffect } from "react"
+import React, { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { X, Send, MessageCircle } from "lucide-react"
-
-interface Message {
-  id: string
-  content: string
-  sender: "user" | "agent"
-  timestamp: Date
-}
+import { Card, CardContent } from "@/components/ui/card"
+import { X, Send, MessageCircle, Loader2, Trash2 } from "lucide-react"
+import { useChatbot } from "@/lib/chatbot-context"
+import ReactMarkdown from 'react-markdown'
 
 export function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      content: "Hello! I'm Lizi, your tender management assistant. How can I help you today?",
-      sender: "agent",
-      timestamp: new Date(),
-    },
-  ])
   const [inputValue, setInputValue] = useState("")
+  const { messages, isReplying, sendMessage, clearHistory } = useChatbot()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -34,37 +20,17 @@ export function ChatbotWidget() {
 
   useEffect(() => {
     if (isOpen) {
-      scrollToBottom()
+      setTimeout(scrollToBottom, 100);
     }
   }, [messages, isOpen])
 
   const handleSendMessage = () => {
-    if (!inputValue.trim()) return
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      content: inputValue,
-      sender: "user",
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
-    setInputValue("")
-
-    // Simulate agent response
-    setTimeout(() => {
-      const agentMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: "Thank you for your message. I'm processing your request and will assist you shortly.",
-        sender: "agent",
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, agentMessage])
-    }, 1000)
+    sendMessage(inputValue);
+    setInputValue(""); // Clear input after sending
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !isReplying) {
       e.preventDefault()
       handleSendMessage()
     }
@@ -73,40 +39,41 @@ export function ChatbotWidget() {
   return (
     <div className="fixed bottom-6 right-6 z-50">
       {isOpen && (
-        <Card className="absolute bottom-16 right-0 w-80 sm:w-96 rounded-xl border-border bg-card shadow-xl overflow-hidden">
-          <CardHeader className="bg-primary text-primary-foreground py-4 px-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <MessageCircle className="h-6 w-6" />
-                <CardTitle className="text-base font-semibold">Lizi Assistant</CardTitle>
-              </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="text-primary-foreground/80 hover:text-primary-foreground transition-colors"
-                aria-label="Close chat"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="h-80 overflow-y-auto p-4 space-y-4">
+        <Card className="absolute bottom-16 right-0 w-80 sm:w-96 rounded-xl border-border bg-card shadow-xl overflow-hidden flex flex-col">
+          <CardContent className="p-0 flex-1 flex flex-col">
+            <div className="h-100 overflow-y-auto p-4 space-y-4">
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
+                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
                     className={`max-w-[80%] rounded-xl px-4 py-2.5 ${
-                      message.sender === "user"
+                      message.role === "user"
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-foreground"
                     }`}
                   >
-                    <p className="text-sm leading-relaxed">{message.content}</p>
+                    {message.role === "user" ? (
+                        <p className="text-sm leading-relaxed">{message.content}</p>
+                    ) : (
+                        <div className="text-sm leading-relaxed prose dark:prose-invert prose-ul:list-disc prose-ul:pl-4 prose-ol:list-decimal prose-ol:pl-4"> 
+                            <ReactMarkdown>
+                                {message.content.replace(/\\n/g, '\n')}
+                            </ReactMarkdown>
+                        </div>
+                    )}
                   </div>
                 </div>
               ))}
+               {isReplying && (
+                <div className="flex justify-start">
+                    <div className="max-w-[80%] rounded-xl px-4 py-2.5 bg-muted text-foreground flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin"/>
+                        <p className="text-sm leading-relaxed">Lizi is typing...</p>
+                    </div>
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
             <div className="border-t border-border p-4">
@@ -115,17 +82,27 @@ export function ChatbotWidget() {
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyPress}
-                  placeholder="Type your message..."
+                  placeholder={isReplying ? "Waiting for response..." : "Type your message..."}
                   className="flex-1 h-10 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
+                  disabled={isReplying}
                 />
                 <Button
                   onClick={handleSendMessage}
                   size="icon"
                   className="h-10 w-10 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
-                  disabled={!inputValue.trim()}
+                  disabled={!inputValue.trim() || isReplying}
                 >
                   <Send className="h-4 w-4" />
                   <span className="sr-only">Send message</span>
+                </Button>
+                <Button
+                  onClick={clearHistory}
+                  size="icon"
+                  className="h-10 w-10 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
+                  disabled={isReplying}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span className="sr-only">Delete chat</span>
                 </Button>
               </div>
             </div>
