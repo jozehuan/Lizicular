@@ -3,12 +3,16 @@
 import Link from "next/link"
 import { AuthForm } from "@/components/auth/auth-form"
 import { FileText, Users, TrendingUp, Sparkles } from "lucide-react"
+import { HexagonBackground } from "@/components/ui/hexagon-background"
 
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-background">
-      <section className="py-10 px-6 flex items-center justify-center">  
-        <AuthForm />
+      <section className="relative overflow-hidden py-10 px-6 flex items-center justify-center min-h-[600px]">
+        <HexagonBackground />
+        <div className="relative z-10 w-full pointer-events-none">
+          <AuthForm className="pointer-events-auto" />
+        </div>
       </section>
 
       <section className="py-20 px-6 border-t border-border">

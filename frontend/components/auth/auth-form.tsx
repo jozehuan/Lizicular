@@ -17,11 +17,12 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Loader2, AlertCircle } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { loginSchema, signupSchema } from "@/lib/validations"
+import { cn } from "@/lib/utils"
 
 type LoginFormValues = z.infer<typeof loginSchema>
 type SignupFormValues = z.infer<typeof signupSchema>
 
-export function AuthForm() {
+export function AuthForm({ className }: { className?: string }) {
   const [activeTab, setActiveTab] = useState("login")
   const [error, setError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -91,7 +92,7 @@ export function AuthForm() {
   }
 
   return (
-    <Card className="w-full max-w-md border-border rounded-xl">
+    <Card className={cn("w-full max-w-lg mx-auto border-border rounded-xl", className)}>
       <CardContent className="space-y-6 pt-6">
         {error && (
           <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 text-destructive text-sm">
@@ -106,16 +107,22 @@ export function AuthForm() {
             loginForm.clearErrors();
             signupForm.clearErrors();
         }} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-muted rounded-xl">
+          <TabsList className="relative grid w-full grid-cols-2 bg-muted rounded-xl p-1">
+            <div
+              className={cn(
+                "absolute inset-y-1 w-[calc(50%-4px)] bg-background rounded-lg shadow-sm transition-all duration-300 ease-in-out",
+                activeTab === "login" ? "left-1" : "left-[calc(50%+4px)]"
+              )}
+            />
             <TabsTrigger 
               value="login" 
-              className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-foreground"
+              className="z-10 rounded-lg bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
               Login
             </TabsTrigger>
             <TabsTrigger 
               value="signup"
-              className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-foreground"
+              className="z-10 rounded-lg bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
               Sign Up
             </TabsTrigger>

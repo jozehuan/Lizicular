@@ -28,25 +28,45 @@ export function Header() {
 
   return (
     <header className="border-b border-border bg-card">
-      <div className={user ? "max-w-7xl mx-auto h-20 flex items-center justify-between" : "max-w-5xl mx-auto px-6 h-20 flex items-center justify-center"}>
-        <Link href={user ? "/dashboard" : "/"} className="flex items-center gap-4">
-          <Image src="/lizicular.JPG" alt="Lizicular Logo" width={56} height={56} />
-          <span className="text-4xl font-semibold text-foreground tracking-tight font-yikes">
+      <div
+        className={
+          user
+            ? "max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between"
+            : "max-w-5xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-center"
+        }
+      >
+        <Link href={user ? "/dashboard" : "/"} className="flex items-center gap-2 sm:gap-4">
+          <Image
+            src="/lizicular.JPG"
+            alt="Lizicular Logo"
+            width={56}
+            height={56}
+            className="w-10 h-10 sm:w-20 sm:h-20"
+          />
+          <span className="relative bottom-1 sm:bottom-2 text-2xl sm:text-4xl font-semibold text-foreground tracking-tight font-yikes">
             Lizicular
           </span>
         </Link>
 
         {user && (
-          <div className="flex items-center gap-4">
-            <span className="text-lg font-sans">Hola, {user.name}!</span>
-            <Avatar className="h-10 w-10 border border-border">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <span className="hidden sm:block text-lg font-sans">
+              Hola, {user.name}!
+            </span>
+            <Avatar className="h-8 w-8 sm:h-10 sm:w-10 border border-border">
               <AvatarImage src={user.picture || "/placeholder-user.jpg"} alt="User avatar" />
-              <AvatarFallback className="bg-secondary text-secondary-foreground">
+              <AvatarFallback className="bg-secondary text-secondary-foreground text-sm">
                 {getInitials(user.name)}
               </AvatarFallback>
             </Avatar>
-            <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Sign Out">
-              <LogOut className="h-5 w-5 text-muted-foreground" />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleLogout}
+              aria-label="Sign Out"
+              className="h-8 w-8 sm:h-10 sm:w-10"
+            >
+              <LogOut className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
             </Button>
           </div>
         )}
