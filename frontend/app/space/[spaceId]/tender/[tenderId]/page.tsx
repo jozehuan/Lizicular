@@ -573,7 +573,7 @@ export default function TenderAnalysisPage({
           <Card className="border-border rounded-xl bg-card mb-8">
             <CardHeader>
               <div className="flex items-start justify-between">
-                <div>
+                <div className="flex-grow">
                   {isEditingTenderName && canEditTender ? (
                     <Input
                       value={newTenderName}
@@ -602,9 +602,6 @@ export default function TenderAnalysisPage({
                     Created {format(new Date(tender.created_at), "MMMM d, yyyy")}
                   </p>
                 </div>
-                <Badge className={`rounded-lg ${getStatusColor(tender.status)}`}>
-                  {formatStatus(tender.status)}
-                </Badge>
               </div>
             </CardHeader>
             <CardContent>

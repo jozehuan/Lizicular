@@ -102,6 +102,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { getStatusBadgeClasses } from "@/lib/style-utils"
 import Link from "next/link"
 
 interface AnalysisDisplayProps {
@@ -116,25 +117,12 @@ const getStatusIcon = (status: AnalysisResult["status"]) => {
     case "completed":
       return <CheckCircle className="h-5 w-5 text-green-500" />
     case "processing":
-      return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-    case "failed":
-      return <AlertCircle className="h-5 w-5 text-red-500" />
-    default:
-      return <Clock className="h-5 w-5 text-blue-500" />
-  }
-}
-
-const getStatusBadgeClasses = (status: AnalysisResult["status"]) => {
-  switch (status?.toLowerCase()) {
-    case "completed":
-      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800"
-    case "processing":
     case "pending":
-      return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800"
+      return <Loader2 className="h-5 w-5 animate-spin text-blue-800 dark:text-blue-300" />
     case "failed":
-      return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-800"
+      return <AlertCircle className="h-5 w-5 text-destructive" />
     default:
-      return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900/40 dark:text-gray-300 dark:border-gray-800"
+      return <Clock className="h-5 w-5 text-gray-500" />
   }
 }
 

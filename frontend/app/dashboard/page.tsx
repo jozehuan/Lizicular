@@ -24,10 +24,10 @@ const BACKEND_URL = "/api/backend"
 
 export interface Tender {
   id: string
-  name: string // Changed from title to name to match backend
-  status?: string // Add status as optional
-  created_at: string // Changed from createdAt to created_at
-  // Add other fields from TenderSummaryResponse if needed
+  name: string
+  status?: string
+  created_at: string
+  analysis_results?: { status: string }[]
 }
 
 export interface Space {

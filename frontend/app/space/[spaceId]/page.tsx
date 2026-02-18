@@ -68,6 +68,8 @@ const HexagonIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+import { getStatusBadgeClasses } from "@/lib/style-utils"
+
 // Updated interfaces to match backend
 export interface FrontendTenderDocument {
   id: string;
@@ -82,8 +84,9 @@ export interface Tender { // Aligned with backend's Tender schema
   name: string // Use 'name' instead of 'title'
   description?: string
   workspace_id: string
-  status: string // Backend status is string, not fixed enum
-  documents?: FrontendTenderDocument[] // Changed from files to documents
+  status: string // This can be deprecated on the frontend later
+  documents?: FrontendTenderDocument[]
+  analysis_results?: { status: string }[] // Add analysis results
   created_at: string
   updated_at: string
 }
@@ -107,28 +110,6 @@ export interface WorkspaceData { // Aligned with WorkspaceResponse
 }
 
 // Remove mock spacesData
-
-function getStatusColor(status: string) {
-  switch (status) {
-    case "draft":
-      return "bg-muted text-muted-foreground"
-    case "in-progress":
-      return "bg-secondary text-secondary-foreground"
-    case "analyzed":
-      return "bg-accent text-accent-foreground"
-    case "completed":
-      return "bg-primary text-primary-foreground"
-    default:
-      return "bg-muted text-muted-foreground"
-  }
-}
-
-function formatStatus(status: string) {
-  return status
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ")
-}
 
 function getRoleColor(role: string) {
   switch (role.toLowerCase()) { // Use toLowerCase to match backend enum
@@ -379,6 +360,7 @@ export default function SpaceDetailPage({
   const [showNewCollaboratorForm, setShowNewCollaboratorForm] = useState(false); // State to show/hide new collaborator form
   const [newCollaboratorEmail, setNewCollaboratorEmail] = useState(""); // Email for new collaborator
   const [newCollaboratorRole, setNewCollaboratorRole] = useState("VIEWER"); // Role for new collaborator
+  const [addCollaboratorError, setAddCollaboratorError] = useState<string | null>(null); // New state for inline error
 
   // Derived state to check if current user is owner or admin
   const currentUserIsOwner = members.find(m => m.id === user?.id)?.role === "OWNER";
@@ -571,6 +553,7 @@ export default function SpaceDetailPage({
     if (!workspace || !newCollaboratorEmail.trim()) {
       return;
     }
+    setAddCollaboratorError(null); // Clear previous errors
 
     try {
       const response = await fetch(`${BACKEND_URL}/workspaces/${workspace.id}/members`, {
@@ -586,23 +569,13 @@ export default function SpaceDetailPage({
         const errorData = await response.json();
         throw new Error(errorData.detail || "Failed to add collaborator");
       }
-      // Handle the case where the user was omitted (status 200 with message)
-      if (response.status === 200) {
-        const text = await response.text();
-        if (text.includes("not found")) {
-          // Display a temporary message to the user that the collaborator was not found
-          setError(`Collaborator with email ${newCollaboratorEmail} not found and was omitted.`);
-          setTimeout(() => setError(null), 5000); // Clear message after 5 seconds
-        }
-      }
-
-
+      
       await fetchSpaceData(); // Refresh all data to update members
       setShowNewCollaboratorForm(false);
       setNewCollaboratorEmail("");
       setNewCollaboratorRole("VIEWER");
     } catch (err: any) {
-      setError(err.message || "An error occurred while adding collaborator");
+      setAddCollaboratorError(err.message || "An error occurred while adding collaborator");
     }
   };
 
@@ -904,12 +877,18 @@ export default function SpaceDetailPage({
                             setShowNewCollaboratorForm(false);
                             setNewCollaboratorEmail("");
                             setNewCollaboratorRole("VIEWER");
+                            setAddCollaboratorError(null); // Clear error on cancel
                           }}
                           className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent flex-1"
                         >
                           Cancel
                         </Button>
                       </div>
+                      {addCollaboratorError && (
+                        <p className="text-sm text-destructive mt-2 px-1">
+                          {addCollaboratorError}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -945,88 +924,91 @@ export default function SpaceDetailPage({
             </Card>
           ) : (
             <div className="space-y-3">
-              {tenders.map((tender) => (
-                <div key={tender.id} className="flex items-start gap-2"> {/* Wrapper for Accordion and Delete button */}
-                  <Accordion type="single" collapsible className="flex-1">
-                    <AccordionItem
-                      value={tender.id}
-                      className="group border border-border rounded-xl bg-card px-0 overflow-hidden"
+              {tenders.map((tender) => {
+                const hasAnalysis = tender.analysis_results && tender.analysis_results.length > 0;
+                const finalStatus = hasAnalysis
+                  ? tender.analysis_results![tender.analysis_results!.length - 1].status
+                  : null;
+
+                return (
+                  <div key={tender.id} className="flex items-start gap-2"> {/* Wrapper for Accordion and Delete button */}
+                    <Accordion type="single" collapsible className="flex-1">
+                      <AccordionItem
+                        value={tender.id}
+                        className="group border border-border rounded-xl bg-card px-0 overflow-hidden"
+                      >
+                        <AccordionTrigger className="flex-1 text-left px-6 py-5 hover:no-underline hover:bg-muted/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-border">
+                                                  <div className="flex items-center justify-between w-full">
+                                                    <div className="flex flex-col items-start text-left">
+                                                      <Link 
+                                                        href={`/space/${spaceId}/tender/${tender.id}`}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="text-lg font-medium text-foreground hover:underline"
+                                                      >
+                                                        {tender.name}
+                                                      </Link>
+                                                      <span className="text-sm text-muted-foreground mt-1">
+                                                        Created {format(new Date(tender.created_at), "MMM d, yyyy")} &middot;{" "}
+                                                        {tender.documents?.length || 0} document
+                                                        {(tender.documents?.length || 0) !== 1 ? "s" : ""}
+                                                      </span>
+                                                    </div>
+                                                    {finalStatus && (
+                                                      <Badge
+                                                        className={`rounded-lg ml-4 ${getStatusBadgeClasses(finalStatus)}`}
+                                                      >
+                                                        {finalStatus.toUpperCase()}
+                                                      </Badge>
+                                                    )}
+                                                  </div>
+                                                </AccordionTrigger>
+                                                <AccordionContent className="px-6 pb-5 pt-4">
+                                                  {(tender.documents?.length || 0) === 0 ? (
+                                                    <p className="text-muted-foreground text-sm py-4 text-center">
+                                                      No documents uploaded yet
+                                                    </p>
+                                                  ) : (
+                                                    <div className="space-y-2">
+                                                      <p className="text-sm font-medium text-muted-foreground mb-3">
+                                                        Uploaded Documents
+                                                      </p>
+                                                      {tender.documents?.map((doc) => (
+                                                        <div
+                                                          key={doc.id}
+                                                          className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 cursor-pointer"
+                                                          onClick={() => handleDownloadDocument(tender.id, doc.id, doc.filename)}
+                                                        >
+                                                          <div className="flex items-center gap-3">
+                                                            <FileText className="h-5 w-5 text-red-500" />
+                                                            <span className="text-sm text-foreground">
+                                                              {doc.filename}
+                                                            </span>
+                                                          </div>
+                                                          <span className="text-xs text-muted-foreground">
+                                                            {formatFileSize(doc.size)}
+                                                          </span>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </AccordionContent>                      </AccordionItem>
+                    </Accordion>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeleteTenderClick(tender.id)}
+                      className={`
+                        shrink-0 text-muted-foreground hover:text-destructive mt-5
+                        ${(currentMemberRole === "OWNER" || currentMemberRole === "ADMIN") 
+                          ? "visible" 
+                          : "invisible pointer-events-none"}
+                      `}
                     >
-                      <AccordionTrigger className="flex-1 text-left px-6 py-5 hover:no-underline hover:bg-muted/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-border">
-                        <div className="flex items-center justify-between w-full">
-                          <div className="flex flex-col items-start text-left">
-                            <span className="text-lg font-medium text-foreground">
-                              {tender.name}
-                            </span>
-                            <span className="text-sm text-muted-foreground mt-1">
-                              Created {format(new Date(tender.created_at), "MMM d, yyyy")} &middot;{" "}
-                              {tender.documents?.length || 0} document
-                              {(tender.documents?.length || 0) !== 1 ? "s" : ""}
-                            </span>
-                          </div>
-                          <Badge
-                            className={`rounded-lg ml-4 ${getStatusColor(tender.status)}`}
-                          >
-                            {formatStatus(tender.status)}
-                          </Badge>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="px-6 pb-5 pt-4">
-                        {(tender.documents?.length || 0) === 0 ? (
-                          <p className="text-muted-foreground text-sm py-4 text-center">
-                            No documents uploaded yet
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium text-muted-foreground mb-3">
-                              Uploaded Documents
-                            </p>
-                            {tender.documents?.map((doc) => (
-                              <div
-                                key={doc.id}
-                                className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 cursor-pointer"
-                                onClick={() => handleDownloadDocument(tender.id, doc.id, doc.filename)}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <FileText className="h-5 w-5 text-red-500" />
-                                  <span className="text-sm text-foreground">
-                                    {doc.filename}
-                                  </span>
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  {formatFileSize(doc.size)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="mt-4 pt-4 border-t border-border">
-                          <Link
-                            href={`/space/${spaceId}/tender/${tender.id}`}
-                            className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
-                          >
-                            View Analysis Results
-                            <span aria-hidden="true">&rarr;</span>
-                          </Link>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDeleteTenderClick(tender.id)}
-                    className={`
-                      shrink-0 text-muted-foreground hover:text-destructive mt-5
-                      ${(currentMemberRole === "OWNER" || currentMemberRole === "ADMIN") 
-                        ? "visible" 
-                        : "invisible pointer-events-none"}
-                    `}
-                  >
-                    <Trash2 className="h-5 w-5" />
-                  </Button>
-                </div>
-              ))}
+                      <Trash2 className="h-5 w-5" />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>          )}
         </div>
       </main>

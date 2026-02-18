@@ -62,6 +62,10 @@ class WorkspaceMemberResponse(BaseModel):
 
 # --- Detailed Workspace Response Schemas ---
 
+class AnalysisResultSummary(BaseModel):
+    """A summarized view of an analysis result."""
+    status: str
+
 class TenderSummaryResponse(BaseModel):
     """A summarized view of a tender for lists."""
     id: str = Field(..., description="MongoDB ObjectId of the tender")
@@ -69,6 +73,8 @@ class TenderSummaryResponse(BaseModel):
     created_at: datetime = Field(..., description="Timestamp of tender creation")
     workspace_id: UUID = Field(..., description="ID of the workspace this tender belongs to")
     workspace_name: str = Field(..., description="Name of the workspace this tender belongs to")
+    analysis_results: List[AnalysisResultSummary] | None = Field(default=None, description="List of analysis results for the tender")
+
 
 
 class WorkspaceWithTendersResponse(WorkspaceResponse):
