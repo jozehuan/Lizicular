@@ -5,6 +5,7 @@ from sqlalchemy import select
 from typing import List, Any, Dict
 import uuid
 import asyncio
+from urllib.parse import quote
 from starlette.responses import StreamingResponse
 import io
 from bson import ObjectId
@@ -29,7 +30,7 @@ from backend.tenders.tenders_utils import (
     update_tender, delete_tender, add_analysis_result_to_tender,
     delete_analysis_result, delete_document, add_documents_to_existing_tender,
     create_placeholder_analysis, update_analysis_result, get_analysis_by_id,
-    get_all_tenders_for_user, get_mongo_db
+    get_all_tenders_for_user, get_mongo_db, MongoDB, check_for_existing_analysis
 )
 from backend.automations.models import Automation
 from backend.automations.websocket.connection_manager import ConnectionManager, get_connection_manager
@@ -295,10 +296,12 @@ async def api_download_tender_document(
 
     file_content = file_record["data"]
     
+    encoded_filename = quote(doc_metadata.filename)
+    
     return StreamingResponse(
         io.BytesIO(file_content),
         media_type=doc_metadata.content_type,
-        headers={"Content-Disposition": f"attachment; filename=\"{doc_metadata.filename}\""}
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"}
     )
 
 
@@ -504,6 +507,12 @@ async def api_generate_analysis(
     if not await check_workspace_permission(tender.workspace_id, current_user.id, db, WorkspaceRole.EDITOR):
         raise HTTPException(status_code=403, detail="Permission denied (Editor role required)")
 
+    if await check_for_existing_analysis(mongo_db, tender_id, analysis_request.automation_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An analysis for this tender with the same automation is already pending or processing."
+        )
+
     automation = await db.get(Automation, uuid.UUID(analysis_request.automation_id))
     if not automation:
         raise HTTPException(status_code=404, detail="Automation not found")
@@ -531,30 +540,6 @@ async def api_generate_analysis(
     )
 
 analysis_router = APIRouter(prefix="/analysis-results", tags=["Analysis"])
-
-@analysis_router.get("/{analysis_id}")
-async def get_single_analysis_result(
-    analysis_id: str,
-    db: AsyncSession = Depends(get_db),
-    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
-    current_user: Any = Depends(get_current_active_user)
-):
-    tender = await mongo_db.tenders.find_one({"analysis_results.id": analysis_id})
-    if not tender:
-        raise HTTPException(status_code=404, detail="No tender associated with this analysis result found")
-
-    if not await check_workspace_permission(tender["workspace_id"], current_user.id, db, WorkspaceRole.VIEWER):
-        raise HTTPException(status_code=403, detail="Access denied to this analysis result")
-
-    analysis_doc = await mongo_db.analysis_results.find_one({"_id": analysis_id})
-    if not analysis_doc:
-        raise HTTPException(status_code=404, detail="Analysis result not found in its collection")
-
-    if "_id" in analysis_doc:
-        analysis_doc["_id"] = str(analysis_doc["_id"])
-    
-    return JSONResponse(content=analysis_doc)
-
 
 @analysis_router.get("/all_for_user", response_model=List[AnalysisResultSummary], summary="Get all analysis results visible to the current user")
 async def api_get_all_analysis_results_for_user(
@@ -599,3 +584,26 @@ async def api_get_all_analysis_results_for_user(
         found_analysis_results[ar_doc["id"]] = AnalysisResultSummary(**ar_doc)
     
     return list(found_analysis_results.values())
+
+@analysis_router.get("/{analysis_id}")
+async def get_single_analysis_result(
+    analysis_id: str,
+    db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
+    current_user: Any = Depends(get_current_active_user)
+):
+    tender = await mongo_db.tenders.find_one({"analysis_results.id": analysis_id})
+    if not tender:
+        raise HTTPException(status_code=404, detail="No tender associated with this analysis result found")
+
+    if not await check_workspace_permission(tender["workspace_id"], current_user.id, db, WorkspaceRole.VIEWER):
+        raise HTTPException(status_code=403, detail="Access denied to this analysis result")
+
+    analysis_doc = await mongo_db.analysis_results.find_one({"_id": analysis_id})
+    if not analysis_doc:
+        raise HTTPException(status_code=404, detail="Analysis result not found in its collection")
+
+    if "_id" in analysis_doc:
+        analysis_doc["_id"] = str(analysis_doc["_id"])
+    
+    return JSONResponse(content=analysis_doc)

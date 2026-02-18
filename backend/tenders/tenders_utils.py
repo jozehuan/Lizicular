@@ -526,6 +526,28 @@ async def delete_document(
     return None
 
 
+async def check_for_existing_analysis(
+    db: Any,
+    tender_id: str,
+    automation_id: str
+) -> bool:
+    """
+    Checks if an analysis for a given tender and automation is already
+    in a PENDING or PROCESSING state.
+    """
+    query = {
+        "_id": ObjectId(tender_id),
+        "analysis_results": {
+            "$elemMatch": {
+                "procedure_id": automation_id,
+                "status": {"$in": [AnalysisStatus.PENDING, AnalysisStatus.PROCESSING]}
+            }
+        }
+    }
+    existing = await db.tenders.find_one(query)
+    return existing is not None
+
+
 # ============================================================================
 # ANALYSIS RESULT OPERATIONS
 # ============================================================================
@@ -675,7 +697,7 @@ async def update_analysis_result(
     status: str,
     data: Optional[Dict[str, Any]] = None,
     error_message: Optional[str] = None
-) -> None:
+) -> bool:
     """
     Updates an analysis result in a tender.
     
@@ -686,6 +708,9 @@ async def update_analysis_result(
         status: The new status
         data: The analysis data
         error_message: An error message if the analysis failed
+        
+    Returns:
+        True if the analysis result was updated, False otherwise.
     """
     update_fields = {
         "analysis_results.$.status": status,
@@ -696,10 +721,11 @@ async def update_analysis_result(
     if error_message:
         update_fields["analysis_results.$.error_message"] = error_message
     
-    await db.tenders.update_one(
+    result = await db.tenders.update_one(
         {"_id": ObjectId(tender_id), "analysis_results.id": analysis_id},
         {"$set": update_fields}
     )
+    return result.modified_count > 0
 
 async def get_analysis_by_id(
     db: Any,
