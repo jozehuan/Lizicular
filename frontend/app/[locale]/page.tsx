@@ -1,11 +1,13 @@
 "use client"
 
 import Link from "next/link"
+import { useTranslations } from "next-intl"
 import { AuthForm } from "@/components/auth/auth-form"
 import { FileText, Users, TrendingUp, Sparkles } from "lucide-react"
 import { HexagonBackground } from "@/components/ui/hexagon-background"
 
 export default function HomePage() {
+  const t = useTranslations("HomePage");
   return (
     <main className="min-h-screen bg-background">
       <section className="relative overflow-hidden py-10 px-6 flex items-center justify-center min-h-[600px]">
@@ -18,7 +20,7 @@ export default function HomePage() {
       <section className="py-20 px-6 border-t border-border">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-2xl font-semibold text-foreground text-center mb-12">
-            Everything you need to manage tenders efficiently
+            {t('featuresTitle')}
           </h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="p-6 rounded-xl border border-border bg-card">
@@ -26,10 +28,10 @@ export default function HomePage() {
                 <FileText className="h-5 w-5 text-secondary-foreground" />
               </div>
               <h3 className="font-semibold text-foreground mb-2">
-                Document Management
+                {t('docManagementTitle')}
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Upload and organize tender documents with ease. Support for PDF and common file formats.
+                {t('docManagementDescription')}
               </p>
             </div>
             <div className="p-6 rounded-xl border border-border bg-card">
@@ -37,10 +39,10 @@ export default function HomePage() {
                 <Users className="h-5 w-5 text-accent-foreground" />
               </div>
               <h3 className="font-semibold text-foreground mb-2">
-                Team Collaboration
+                {t('collaborationTitle')}
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Invite collaborators to your workspaces and work together seamlessly on tenders.
+                {t('collaborationDescription')}
               </p>
             </div>
             <div className="p-6 rounded-xl border border-border bg-card">
@@ -48,10 +50,10 @@ export default function HomePage() {
                 <TrendingUp className="h-5 w-5 text-secondary-foreground" />
               </div>
               <h3 className="font-semibold text-foreground mb-2">
-                Analysis & Insights
+                {t('analysisTitle')}
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Get automated analysis of your tender documents with actionable insights.
+                {t('analysisDescription')}
               </p>
             </div>
             <div className="p-6 rounded-xl border border-border bg-card">
@@ -59,10 +61,10 @@ export default function HomePage() {
                 <Sparkles className="h-5 w-5 text-accent-foreground" />
               </div>
               <h3 className="font-semibold text-foreground mb-2">
-                AI-Powered Automation
+                {t('automationTitle')}
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Let AI extract key information and generate summaries from your documents.
+                {t('automationDescription')}
               </p>
             </div>
           </div>
@@ -72,20 +74,20 @@ export default function HomePage() {
       <footer className="py-8 px-6 border-t border-border font-sans">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <span className="text-sm text-muted-foreground">
-            &copy; 2026 Lizicular. All rights reserved.
+            &copy; {new Date().getFullYear()} Lizicular. {t('footerRights')}
           </span>
           <div className="flex items-center gap-6">
             <Link
               href="#"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              Privacy
+              {t('footerPrivacy')}
             </Link>
             <Link
               href="#"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              Terms
+              {t('footerTerms')}
             </Link>
           </div>
         </div>
@@ -93,3 +95,4 @@ export default function HomePage() {
     </main>
   )
 }
+

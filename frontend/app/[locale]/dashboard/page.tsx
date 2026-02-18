@@ -9,6 +9,7 @@ import { ProtectedRoute } from "@/components/auth/protected-route"
 import { Button } from "@/components/ui/button"
 import { Plus, Loader2, AlertCircle } from "lucide-react" // Import Loader2 and AlertCircle
 import { useAuth } from "@/lib/auth-context" // Import useAuth
+import { useTranslations } from "next-intl";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +44,7 @@ export interface Space {
 }
 
 export default function DashboardPage() {
+  const t = useTranslations("Dashboard");
   const { accessToken, isLoading: isAuthLoading } = useAuth()
   const [spaces, setSpaces] = useState<Space[]>([])
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -70,17 +72,17 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.detail || "Failed to fetch spaces")
+        throw new Error(errorData.detail || t('errors.fetchSpaces'))
       }
 
       const data: Space[] = await response.json()
       setSpaces(data)
     } catch (err: any) {
-      setError(err.message || "An unknown error occurred while fetching spaces")
+      setError(err.message || t('errors.fetchSpacesUnexpected'))
     } finally {
       setIsLoading(false)
     }
-  }, [accessToken, isAuthLoading])
+  }, [accessToken, isAuthLoading, t])
 
   useEffect(() => {
     fetchSpaces()
@@ -102,7 +104,7 @@ export default function DashboardPage() {
 
       if (!createResponse.ok) {
         const errorData = await createResponse.json()
-        throw new Error(errorData.detail || "Failed to create space")
+        throw new Error(errorData.detail || t('errors.createSpace'))
       }
 
       const newWorkspace: Space = await createResponse.json()
@@ -111,14 +113,14 @@ export default function DashboardPage() {
       await fetchSpaces()
       setShowCreateForm(false)
     } catch (err: any) {
-      setCreateSpaceError(err.message || "An unknown error occurred while creating space")
+      setCreateSpaceError(err.message || t('errors.createSpaceUnexpected'))
     } finally {
       setIsCreatingSpace(false)
     }
   }
 
   const handleDeleteSpaceClick = (spaceId: string) => {
-    setSpaceToDeleteId(spaceId);
+    setTenderToDeleteId(spaceId);
     setShowDeleteConfirm(true);
   };
 
@@ -135,14 +137,14 @@ export default function DashboardPage() {
 
       if (!deleteResponse.ok) {
         const errorData = await deleteResponse.json();
-        throw new Error(errorData.detail || "Failed to delete space");
+        throw new Error(errorData.detail || t('errors.deleteSpace'));
       }
 
       await fetchSpaces(); // Refresh the list
       setSpaceToDeleteId(null);
       setShowDeleteConfirm(false);
     } catch (err: any) {
-      setError(err.message || "An unknown error occurred during deletion"); // Use main error state for deletion errors
+      setError(err.message || t('errors.deleteSpaceUnexpected')); // Use main error state for deletion errors
       setSpaceToDeleteId(null);
       setShowDeleteConfirm(false);
     }
@@ -169,7 +171,7 @@ export default function DashboardPage() {
               {error}
         </div>
         <Button onClick={() => window.location.reload()} className="mt-4">
-            Retry
+            {t('retry')}
         </Button>
       </main>
     )
@@ -182,9 +184,9 @@ export default function DashboardPage() {
       <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">Your Spaces</h1>
+            <h1 className="text-2xl font-semibold text-foreground">{t('title')}</h1>
             <p className="text-muted-foreground mt-1">
-              Manage your workspaces and tenders
+              {t('subtitle')}
             </p>
           </div>
           <Button
@@ -192,7 +194,7 @@ export default function DashboardPage() {
             className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="mr-2 h-4 w-4" />
-            Create New Space
+            {t('createSpace')}
           </Button>
         </div>
 
@@ -215,16 +217,15 @@ export default function DashboardPage() {
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogTitle>{t('deleteDialogTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete your
-              workspace and all associated data.
+              {t('deleteDialogDescription')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCancelDelete}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={handleCancelDelete}>{t('deleteDialogCancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive hover:bg-destructive/90">
-              Delete
+              {t('deleteDialogConfirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

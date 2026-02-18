@@ -25,14 +25,14 @@ export const HexagonBackground = () => {
       className="absolute inset-0 z-0 overflow-hidden opacity-100"
       aria-hidden="true"
     >
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-125">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 scale-130">
         <div className="flex flex-col items-center">
           {Array.from({ length: grid.rows }).map((_, rowIndex) => (
             <div
               key={rowIndex}
               className={cn(
                 "flex justify-center gap-16 -mb-2",
-                rowIndex % 2 === 1 ? "ml-40" : ""
+                rowIndex % 2 === 1 ? "ml-48" : ""
               )}
             >
               {Array.from({ length: grid.hexagonsPerRow }).map((_, hexIndex) => (

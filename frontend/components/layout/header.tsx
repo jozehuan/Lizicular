@@ -2,13 +2,16 @@
 
 import Link from "next/link"
 import Image from "next/image"
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { LogOut } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { LanguageSwitcher } from "./language-switcher"
 
 export function Header() {
+  const t = useTranslations("Header");
   const { user, logout } = useAuth()
   const router = useRouter()
 
@@ -51,7 +54,7 @@ export function Header() {
         {user && (
           <div className="flex items-center gap-2 sm:gap-4">
             <span className="hidden sm:block text-lg font-sans">
-              Hola, {user.name}!
+              {t('greeting', {name: user.name})}
             </span>
             <Avatar className="h-8 w-8 sm:h-10 sm:w-10 border border-border">
               <AvatarImage src={user.picture || "/placeholder-user.jpg"} alt="User avatar" />
@@ -59,11 +62,12 @@ export function Header() {
                 {getInitials(user.name)}
               </AvatarFallback>
             </Avatar>
+            <LanguageSwitcher />
             <Button
               variant="ghost"
               size="icon"
               onClick={handleLogout}
-              aria-label="Sign Out"
+              aria-label={t('signOut')}
               className="h-8 w-8 sm:h-10 sm:w-10"
             >
               <LogOut className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />

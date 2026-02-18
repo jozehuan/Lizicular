@@ -1,7 +1,9 @@
 "use client"
 
+import React from "react"
 import Link from "next/link"
 import { format } from "date-fns"
+import { useTranslations } from "next-intl"
 import {
   Accordion,
   AccordionContent,
@@ -11,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { FileText, ChevronRight, Trash2 } from "lucide-react"
-import type { Space } from "@/app/dashboard/page"
+import type { Space } from "@/app/[locale]/dashboard/page"
 import { getStatusBadgeClasses } from "@/lib/style-utils"
 
 interface SpacesListProps {
@@ -37,12 +39,15 @@ const HexagonIcon = (props: React.SVGProps<SVGSVGElement>) => (
 )
 
 export function SpacesList({ spaces, onDeleteSpace }: SpacesListProps) {
+  const t = useTranslations("SpacesList");
+  const tStatus = useTranslations("Status");
+
   if (spaces.length === 0) {
     return (
       <div className="text-center py-16 text-muted-foreground">
         <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-        <p className="text-lg">No spaces yet</p>
-        <p className="text-sm mt-1">Create your first space to get started</p>
+        <p className="text-lg">{t('noSpacesTitle')}</p>
+        <p className="text-sm mt-1">{t('noSpacesSubtitle')}</p>
       </div>
     )
   }
@@ -55,7 +60,7 @@ export function SpacesList({ spaces, onDeleteSpace }: SpacesListProps) {
           <Accordion type="multiple" className="flex-1">
             <AccordionItem
               value={space.id}
-              className="group border border-border rounded-xl bg-card px-0 overflow-hidden"
+              className="group border border-border rounded-xl bg-card px-0 overflow-hidden shadow-sm"
             >
               <AccordionTrigger className="flex-1 text-left px-6 py-5 hover:no-underline hover:bg-muted/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-border">
                 <div className="flex items-center gap-4 w-full">
@@ -76,8 +81,8 @@ export function SpacesList({ spaces, onDeleteSpace }: SpacesListProps) {
                       )}
                     </div>
                     <span className="text-sm text-muted-foreground mt-1">
-                      Created {format(new Date(space.created_at), "MMM d, yyyy")} &middot;{" "}
-                      {space.tenders.length} tender{space.tenders.length !== 1 ? "s" : ""}
+                      {t('createdDate', {date: format(new Date(space.created_at), "MMM d, yyyy")})} &middot;{" "}
+                      {t('tendersCount', {count: space.tenders.length})}
                     </span>
                   </div>
                 </div>
@@ -93,12 +98,12 @@ export function SpacesList({ spaces, onDeleteSpace }: SpacesListProps) {
                 )}
                 {space.tenders.length === 0 ? (
                   <p className="text-muted-foreground text-sm py-2 text-center">
-                    No tenders in this space yet
+                    {t('noTendersInSpace')}
                   </p>
                 ) : (
                   <div className="space-y-2">
                     <h4 className="text-sm font-medium text-muted-foreground mb-3">
-                      Tenders
+                      {t('tendersLabel')}
                     </h4>
                     {space.tenders.map((tender) => {
                       // Determine the status from the last analysis result
@@ -106,6 +111,7 @@ export function SpacesList({ spaces, onDeleteSpace }: SpacesListProps) {
                       const finalStatus = hasAnalysis
                         ? tender.analysis_results![tender.analysis_results!.length - 1].status
                         : null;
+                      const statusKey = finalStatus?.toLowerCase();
 
                       return (
                         <Link
@@ -122,7 +128,7 @@ export function SpacesList({ spaces, onDeleteSpace }: SpacesListProps) {
                           <div className="flex items-center gap-3">
                             {finalStatus && (
                               <Badge variant="outline" className={`rounded-lg ${getStatusBadgeClasses(finalStatus)}`}>
-                                {finalStatus.toUpperCase()}
+                                {tStatus(statusKey) || finalStatus.toUpperCase()}
                               </Badge>
                             )}
                             <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />

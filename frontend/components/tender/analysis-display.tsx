@@ -13,86 +13,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { AlertCircle, CheckCircle, Clock, FileJson, Info, Loader2, Trash2 } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, FileJson, Loader2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useTranslations } from "next-intl"
 
 // Interfaces based on backend/tenders/schemas.py
-interface InformacionGeneral {
-  requisito: string
-  detalle: string
-  referencia: string
-}
-
-interface Requisito {
-  requisito: string
-  detalle: string
-  referencia: string
-}
-
-interface OtroRequisito {
-  requisito: string
-  detalle: string
-  referencia: string
-}
-
-interface Subcriterio {
-  nombre: string
-  detalle: string
-  puntuacion: number
-  referencia: string
-}
-
-interface CriterioNoMatematico {
-  nombre: string
-  detalle: string
-  puntuacion_total: number
-  referencia: string
-  subcriterios: Subcriterio[]
-}
-
-interface Variable {
-  simbolo: string
-  detalle: string
-}
-
-interface Formula {
-  formula: string
-  detalle_formula: string
-  variables: Variable[]
-}
-
-interface CriterioMatematico {
-  nombre: string
-  detalle: string
-  puntuacion: number
-  referencia: string
-  formula: Formula
-}
-
-interface AnalysisData {
-  informacion_general: InformacionGeneral[]
-  requisitos: Requisito[]
-  otros_requisitos: OtroRequisito[]
-  criterios_no_matematicos: CriterioNoMatematico[]
-  criterios_matematicos: CriterioMatematico[]
-}
-
 interface AnalysisResult {
   id: string
   name: string
   procedure_name: string
   created_at: string
   status: "pending" | "processing" | "completed" | "failed" | string
-  data: AnalysisData | null
+  data: any | null
   error_message?: string
 }
 
@@ -126,8 +59,8 @@ const getStatusIcon = (status: AnalysisResult["status"]) => {
   }
 }
 
-const parseErrorMessage = (message?: string): string => {
-  if (!message) return "No detail provided.";
+const parseErrorMessage = (message?: string, defaultMessage?: string): string => {
+  if (!message) return defaultMessage || "No detail provided.";
 
   const prefix = "Error from automation service: ";
   let detail = message;
@@ -141,59 +74,62 @@ const parseErrorMessage = (message?: string): string => {
     detail = detail.substring('$input.detail'.length).trim();
   }
   
-  // Also handle cases where the error from httpx is the main content
   const httpErrorPrefix = "httpx.HTTPStatusError: ";
   if (detail.startsWith(httpErrorPrefix)) {
     detail = detail.substring(httpErrorPrefix.length);
   }
 
-  // NEW: Remove URL part from the error string
   const urlIndex = detail.indexOf(" for url ");
   if (urlIndex !== -1) {
     detail = detail.substring(0, urlIndex);
   }
 
-  return detail.trim() || "No detail provided.";
+  return detail.trim() || defaultMessage || "No detail provided.";
 };
 
 // Helper component to render the dynamic summary
 const DynamicSummary = ({ data }: { data: any }) => {
-  const renderSummary = (obj: any, level = 0) => {
-    if (!obj || typeof obj !== 'object') {
-      return null;
-    }
+    const t = useTranslations("AnalysisDisplay");
 
-    const keys = Object.keys(obj).filter(
-      k => !['_id', 'tender_id', 'created_at'].includes(k)
-    );
+    const renderSummary = (obj: any, level = 0) => {
+        if (!obj || typeof obj !== 'object') {
+        return null;
+        }
 
-    return (
-      <ul className={`space-y-1 ${level > 0 ? 'pl-4' : ''}`}>
-        {keys.map(key => {
-          const value = obj[key];
-          const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        const keys = Object.keys(obj).filter(
+        k => !['_id', 'tender_id', 'created_at'].includes(k)
+        );
 
-          return (
-            <li key={key} className="text-sm">
-              <span className="font-semibold">{formattedKey}:</span>
-              {Array.isArray(value) ? (
-                <span className="ml-2">{value.length} elementos</span>
-              ) : typeof value === 'object' && value !== null ? (
-                renderSummary(value, level + 1)
-              ) : (
-                <span className="ml-2">{String(value)}</span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    );
-  };
+        return (
+        <ul className={`space-y-1 ${level > 0 ? 'pl-4' : ''}`}>
+            {keys.map(key => {
+            const value = obj[key];
+            const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
-  return renderSummary(data);
+            return (
+                <li key={key} className="text-sm">
+                <span className="font-semibold">{formattedKey}:</span>
+                {Array.isArray(value) ? (
+                    <span className="ml-2">{t('elementsCount', { count: value.length })}</span>
+                ) : typeof value === 'object' && value !== null ? (
+                    renderSummary(value, level + 1)
+                ) : (
+                    <span className="ml-2">{String(value)}</span>
+                )}
+                </li>
+            );
+            })}
+        </ul>
+        );
+    };
+
+    return renderSummary(data);
 };
 
 export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }: AnalysisDisplayProps) {
+  const t = useTranslations("AnalysisDisplay");
+  const tStatus = useTranslations("Status"); // Add tStatus hook
+
   if (!analysisResults || analysisResults.length === 0) {
     return (
       <Card className="text-center">
@@ -201,10 +137,8 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
           <FileJson className="mx-auto h-12 w-12 text-gray-400" />
         </CardHeader>
         <CardContent>
-          <CardTitle>No Analysis Available</CardTitle>
-          <CardDescription>
-            There are no analysis results to display for this tender yet.
-          </CardDescription>
+          <CardTitle>{t('noAnalysis.title')}</CardTitle>
+          <CardDescription>{t('noAnalysis.description')}</CardDescription>
         </CardContent>
       </Card>
     )
@@ -220,7 +154,7 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
           <Accordion type="single" collapsible className="flex-1">
             <AccordionItem 
               value={result.id} 
-              className="border rounded-lg overflow-hidden"
+              className="border rounded-lg overflow-hidden shadow-sm"
             >
               <AccordionTrigger className="p-4 bg-gray-50 dark:bg-gray-800 hover:no-underline">
                 <div className="flex items-center justify-between w-full">
@@ -239,7 +173,7 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
                         <p className="font-semibold">{result.name}</p>
                       )}
                       <p className="text-sm text-muted-foreground">
-                        Created: {new Date(result.created_at).toLocaleString()}
+                        {t('created')}: {new Date(result.created_at).toLocaleString()}
                       </p>
                     </div>
                   </div>
@@ -251,12 +185,12 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
                             variant="outline"
                             className={getStatusBadgeClasses(normalizedStatus)}
                           >
-                            {result.status.toUpperCase()}
+                            {tStatus(normalizedStatus) || result.status.toUpperCase()}
                           </Badge>
                         </TooltipTrigger>
                         {normalizedStatus === 'failed' && (
                           <TooltipContent>
-                            <p>{parseErrorMessage(result.error_message)}</p>
+                            <p>{parseErrorMessage(result.error_message, t('noErrorDetails'))}</p>
                           </TooltipContent>
                         )}
                       </Tooltip>
@@ -271,18 +205,17 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
                 ) : normalizedStatus === "processing" ? (
                   <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
                     <Clock className="h-8 w-8 mb-2 animate-spin" />
-                    <p>Analysis in progress, please wait...</p>
+                    <p>{t('status.processing')}</p>
                   </div>
                 ) : normalizedStatus === "failed" ? (
                   <div className="flex flex-col items-center justify-center p-8 text-destructive">
                     <AlertCircle className="h-8 w-8 mb-2" />
-                    <p className="font-semibold">Analysis Failed</p>
-                    {/* The detailed message is now in the tooltip */}
+                    <p className="font-semibold">{t('status.failed')}</p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
                     <Clock className="h-8 w-8 mb-2" />
-                    <p>Analysis is pending and will start soon.</p>
+                    <p>{t('status.pending')}</p>
                   </div>
                 )}
               </AccordionContent>

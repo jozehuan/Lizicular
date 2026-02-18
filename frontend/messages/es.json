@@ -1,0 +1,254 @@
+{
+  "AuthForm": {
+    "login": "Iniciar Sesión",
+    "signup": "Registrarse",
+    "loginTitle": "Inicia sesión con tu email",
+    "signupTitle": "Crea una cuenta",
+    "emailLabel": "Dirección de email",
+    "emailPlaceholder": "tu@ejemplo.com",
+    "passwordLabel": "Contraseña",
+    "passwordPlaceholder": "Introduce tu contraseña",
+    "passwordPlaceholderSignup": "Crea una contraseña (mín. 8 caracteres)",
+    "nameLabel": "Nombre completo",
+    "namePlaceholder": "Juan Pérez",
+    "signInButton": "Entrar",
+    "signingInButton": "Entrando...",
+    "createAccountButton": "Crear cuenta",
+    "creatingAccountButton": "Creando cuenta...",
+    "errors": {
+      "loginFailed": "Error al iniciar sesión",
+      "signupFailed": "Error al registrarse",
+      "unexpected": "Ocurrió un error inesperado"
+    },
+    "validation": {
+      "nameRequired": "El nombre completo es obligatorio.",
+      "emailInvalid": "Por favor, introduce un email válido.",
+      "passwordMin": "La contraseña debe tener al menos 8 caracteres.",
+      "passwordRequired": "La contraseña es obligatoria."
+    }
+  },
+  "Dashboard": {
+    "title": "Tus espacios",
+    "subtitle": "Gestiona tus espacios de trabajo y licitaciones",
+    "createSpace": "Nuevo espacio",
+    "deleteDialogTitle": "¿Estás completamente seguro?",
+    "deleteDialogDescription": "Esta acción no se puede deshacer. Esto eliminará permanentemente tu espacio de trabajo y todos los datos asociados.",
+    "deleteDialogCancel": "Cancelar",
+    "deleteDialogConfirm": "Eliminar",
+    "retry": "Reintentar",
+    "errors": {
+      "fetchSpaces": "Error al obtener los espacios",
+      "fetchSpacesUnexpected": "Ocurrió un error desconocido al obtener los espacios",
+      "createSpace": "Error al crear el espacio",
+      "createSpaceUnexpected": "Ocurrió un error desconocido al crear el espacio",
+      "deleteSpace": "Error al eliminar el espacio",
+      "deleteSpaceUnexpected": "Ocurrió un error desconocido durante la eliminación"
+    }
+  },
+  "SpacesList": {
+    "noSpacesTitle": "Aún no hay espacios",
+    "noSpacesSubtitle": "Crea tu primer espacio para empezar",
+    "tendersLabel": "Licitaciones",
+    "createdDate": "Creado el {date}",
+    "tendersCount": "{count, plural, one {# licitación} other {# licitaciones}}",
+    "noTendersInSpace": "Aún no hay licitaciones en este espacio"
+  },
+  "CreateSpaceForm": {
+    "title": "Crear Nuevo Espacio",
+    "description": "Dale un nombre a tu nuevo espacio de trabajo y una descripción opcional.",
+    "nameLabel": "Nombre del Espacio",
+    "namePlaceholder": "Ej: Licitaciones Marketing Q3",
+    "descriptionLabel": "Descripción (Opcional)",
+    "descriptionPlaceholder": "Una breve descripción de este espacio de trabajo...",
+    "collaboratorsLabel": "Añadir colaboradores (Opcional)",
+    "collaboratorEmailPlaceholder": "compañero@ejemplo.com",
+    "addCollaborator": "Añadir",
+    "submit": "Crear espacio",
+    "submitting": "Creando...",
+    "cancel": "Cancelar"
+  },
+  "Header": {
+    "greeting": "¡Hola, {name}!",
+    "signOut": "Cerrar sesión"
+  },
+  "HomePage": {
+    "featuresTitle": "Todo lo que necesitas para gestionar licitaciones eficientemente",
+    "docManagementTitle": "Gestión de documentos",
+    "docManagementDescription": "Sube y organiza documentos de licitaciones con facilidad. Soporte para PDF y formatos comunes.",
+    "collaborationTitle": "Colaboración en equipo",
+    "collaborationDescription": "Invita a colaboradores a tus espacios de trabajo y colabora en licitaciones sin problemas.",
+    "analysisTitle": "Análisis e información",
+    "analysisDescription": "Obtén análisis automáticos de tus documentos de licitación con información práctica.",
+    "automationTitle": "Automatización con IA",
+    "automationDescription": "Deja que la IA extraiga información clave y genere resúmenes de tus documentos.",
+    "footerPrivacy": "Privacidad",
+    "footerTerms": "Términos",
+    "footerRights": "Todos los derechos reservados."
+  },
+  "SpaceDetailPage": {
+    "homeBreadcrumb": "Inicio",
+    "createdOn": "Creado el {date}",
+    "membersTitle": "Miembros ({count})",
+    "addCollaboratorButton": "Añadir colaborador",
+    "addCollaboratorEmailPlaceholder": "Email del colaborador",
+    "addCollaboratorRolePlaceholder": "Seleccionar rol",
+    "addCollaboratorAddButton": "Añadir",
+    "addCollaboratorCancelButton": "Cancelar",
+    "tendersTitle": "Licitaciones",
+    "newTenderButton": "Nueva licitación",
+    "noTendersTitle": "Aún no hay licitaciones",
+    "noTendersSubtitle": "Crea tu primera licitación para empezar",
+    "documentsCount": "{count, plural, one {# documento} other {# documentos}}",
+    "viewAnalysisResults": "Ver resultados del análisis",
+    "noDocumentsUploaded": "Aún no se han subido documentos",
+    "uploadedDocuments": "Documentos subidos",
+    "workspaceNotFound": "Espacio de trabajo no encontrado.",
+    "retry": "Reintentar",
+    "errors": {
+      "fetchWorkspace": "Error al obtener los detalles del espacio de trabajo",
+      "fetchMembers": "Error al obtener los miembros del espacio de trabajo",
+      "fetchTenders": "Error al obtener las licitaciones",
+      "unexpected": "Ocurrió un error desconocido al obtener los datos del espacio",
+      "updateWorkspace": "Error al actualizar el nombre del espacio de trabajo",
+      "updateWorkspaceUnexpected": "Ocurrió un error al actualizar el nombre del espacio de trabajo",
+      "createTender": "Error al crear la licitación",
+      "createTenderUnexpected": "Ocurrió un error desconocido al crear la licitación",
+      "modifyMember": "Error al modificar el miembro",
+      "modifyMemberUnexpected": "Ocurrió un error al modificar el rol del miembro",
+      "addCollaborator": "Error al añadir colaborador",
+      "addCollaboratorUnexpected": "Ocurrió un error al añadir colaborador",
+      "deleteTender": "Error al eliminar la licitación",
+      "deleteTenderUnexpected": "Ocurrió un error al eliminar la licitación",
+      "missingToken": "Falta el token de autenticación. Por favor, inicia sesión de nuevo.",
+      "downloadFailed": "Error al descargar el documento",
+      "downloadUnexpected": "Ocurrió un error durante la descarga del documento."
+    }
+  },
+  "Roles": {
+    "OWNER": "Propietario",
+    "ADMIN": "Administrador",
+    "EDITOR": "Editor",
+    "VIEWER": "Lector",
+    "NONE": "Ninguno"
+  },
+  "Status": {
+    "pending": "Pendiente",
+    "processing": "Procesando",
+    "completed": "Completado",
+    "failed": "Error"
+  },
+  "NewTenderDialog": {
+    "title": "Crear nueva licitación",
+    "description": "Añade una nueva licitación a este espacio de trabajo con sus documentos",
+    "nameLabel": "Nombre de la licitación",
+    "namePlaceholder": "Introduce el nombre de la licitación...",
+    "documentsLabel": "Documentos",
+    "dragAndDrop": "Arrastra y suelta archivos PDF aquí",
+    "orBrowse": "o haz clic para buscar en tu ordenador",
+    "selectedFiles": "Archivos seleccionados ({count})",
+    "cancelButton": "Cancelar",
+    "submitButton": "Crear licitación",
+    "submittingButton": "Creando..."
+  },
+  "DeleteTenderDialog": {
+    "title": "¿Seguro que quieres eliminar esta licitación?",
+    "description": "Esta acción no se puede deshacer. Se eliminará permanentemente la licitación y todos sus documentos y análisis asociados.",
+    "cancelButton": "Cancelar",
+    "confirmButton": "Eliminar"
+  },
+  "TenderAnalysisPage": {
+    "breadcrumbs": {
+      "home": "Inicio"
+    },
+    "createdOn": "Creado el {date}",
+    "attachedFiles": "Archivos adjuntos",
+    "addFilesButton": "Añadir archivos",
+    "noFiles": "No hay archivos subidos",
+    "analysisCount": "{count, plural, one {# resultado de análisis} other {# resultados de análisis}}",
+    "fileCount": "{count, plural, one {# archivo} other {# archivos}}",
+    "analysisResultsTitle": "Resultados del análisis",
+    "generateAnalysisButton": "Generar análisis",
+    "goToDashboard": "Ir al panel",
+    "addFilesDialog": {
+      "title": "Añadir más archivos",
+      "description": "Sube documentos PDF adicionales a esta licitación.",
+      "dragAndDrop": "Arrastra y suelta archivos PDF aquí",
+      "orBrowse": "o haz clic para buscar en tu ordenador",
+      "selectedFiles": "Archivos seleccionados ({count})",
+      "cancelButton": "Cancelar",
+      "uploadButton": "Subir archivos",
+      "uploadingButton": "Subiendo..."
+    },
+    "generateAnalysisDialog": {
+      "title": "Generar nuevo análisis",
+      "description": "Selecciona una automatización y proporciona un nombre para esta ejecución de análisis.",
+      "nameLabel": "Nombre",
+      "namePlaceholder": "Opcional, ej: 'Revisión inicial de precios'",
+      "automationLabel": "Automatización",
+      "automationPlaceholder": "Selecciona una automatización",
+      "cancelButton": "Cancelar",
+      "generateButton": "Generar"
+    },
+    "deleteAnalysisDialog": {
+      "title": "¿Estás completamente seguro?",
+      "description": "Esta acción no se puede deshacer. Esto eliminará permanentemente este resultado de análisis.",
+      "cancelButton": "Cancelar",
+      "deleteButton": "Eliminar"
+    },
+    "errors": {
+      "fetchTender": "Error al obtener la licitación.",
+      "fetchWorkspace": "Error al obtener el espacio de trabajo.",
+      "fetchAutomations": "Error al obtener las automatizaciones.",
+      "unexpected": "Ocurrió un error inesperado.",
+      "updateTenderName": "Error al actualizar el nombre de la licitación.",
+      "selectAutomation": "Por favor, selecciona una automatización.",
+      "generateAnalysis": "Error al iniciar la generación del análisis.",
+      "deleteAnalysis": "Error al eliminar el resultado del análisis.",
+      "noFilesSelected": "No se han seleccionado archivos para subir.",
+      "noAuth": "Falta el token de autenticación.",
+      "uploadFailed": "Error al subir los archivos.",
+      "uploadError": "Ocurrió un error durante la subida de archivos.",
+      "removeDocument": "Error al eliminar el documento.",
+      "removeDocumentError": "Ocurrió un error al eliminar el documento.",
+      "fetchTenderTitle": "Error al Obtener la Licitación"
+    },
+    "notFound": {
+      "title": "Licitación no encontrada",
+      "message": "No se pudo encontrar la licitación solicitada."
+    }
+  },
+  "AnalysisDisplay": {
+    "noAnalysis": {
+      "title": "No hay análisis disponibles",
+      "description": "Aún no hay resultados de análisis para mostrar en esta licitación."
+    },
+    "created": "Creado",
+    "noErrorDetails": "No se proporcionaron detalles del error.",
+    "elementsCount": "{count, plural, one {# elemento} other {# elementos}}",
+    "status": {
+      "processing": "Análisis en progreso, por favor espera...",
+      "failed": "El análisis falló",
+      "pending": "El análisis está pendiente y comenzará pronto."
+    }
+  },
+  "ChatbotWidget": {
+    "typing": "...",
+    "waiting": "Esperando respuesta...",
+    "placeholder": "Escribe tu mensaje...",
+    "sendAria": "Enviar mensaje",
+    "deleteAria": "Eliminar chat",
+    "openAria": "Abrir chat",
+    "closeAria": "Cerrar chat"
+  },
+  "AnalysisResultPage": {
+    "title": "Resultado del análisis",
+    "tenderLabel": "Licitación: {name}",
+    "createdLabel": "Creado el: {date}",
+    "backButton": "Volver",
+    "noData": "No hay datos para mostrar.",
+    "errors": {
+      "fetchResult": "Error al obtener el resultado del análisis",
+      "goBack": "Volver"
+    }
+  }
+}

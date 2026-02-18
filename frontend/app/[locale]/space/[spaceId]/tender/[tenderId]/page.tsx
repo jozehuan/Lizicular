@@ -40,6 +40,7 @@ import {
 } from "lucide-react"
 import { useState, useRef, use, useMemo, useCallback, useEffect } from "react" // Import useRef, useLayoutEffect, useMemo
 import Link from "next/link"
+import { useTranslations } from "next-intl"
 
 import {
   Breadcrumb,
@@ -97,34 +98,13 @@ interface Automation {
   description: string | null
 }
 
-function getStatusColor(status: string) {
-  switch (status) {
-    case "draft":
-      return "bg-muted text-muted-foreground"
-    case "in-progress":
-      return "bg-secondary text-secondary-foreground"
-    case "analyzed":
-      return "bg-accent text-accent-foreground"
-    case "completed":
-      return "bg-primary text-primary-foreground"
-    default:
-      return "bg-muted text-muted-foreground"
-  }
-}
-
-function formatStatus(status: string) {
-  return status
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ")
-}
-
 export default function TenderAnalysisPage({
   params,
 }: {
-  params: { spaceId: string; tenderId: string }
+  params: Promise<{ spaceId: string; tenderId: string }>
 }) {
     const { spaceId, tenderId } = use(params)
+    const t = useTranslations("TenderAnalysisPage");
     const { user, accessToken, isLoading: isAuthLoading } = useAuth() // Get user and accessToken from useAuth
   const [tender, setTender] = useState<TenderData | null>(null)
   const [workspaceName, setWorkspaceName] = useState<string | null>(null)
@@ -173,7 +153,7 @@ export default function TenderAnalysisPage({
 
       if (!tenderRes.ok) {
         const errorData = await tenderRes.json();
-        throw new Error(errorData.detail || "Failed to fetch tender.");
+        throw new Error(errorData.detail || t('errors.fetchTender'));
       }
       const tenderData: TenderData = await tenderRes.json();
       
@@ -203,7 +183,7 @@ export default function TenderAnalysisPage({
 
       if (!workspaceRes.ok) {
         const errorData = await workspaceRes.json();
-        throw new Error(errorData.detail || "Failed to fetch workspace.");
+        throw new Error(errorData.detail || t('errors.fetchWorkspace'));
       }
       const workspaceData = await workspaceRes.json();
       setWorkspaceName(workspaceData.name);
@@ -215,17 +195,17 @@ export default function TenderAnalysisPage({
 
       if (!automationsRes.ok) {
         const errorData = await automationsRes.json();
-        throw new Error(errorData.detail || "Failed to fetch automations.");
+        throw new Error(errorData.detail || t('errors.fetchAutomations'));
       }
       const automationsData: Automation[] = await automationsRes.json();
       setAutomations(automationsData);
 
     } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+      setError(err.message || t('errors.unexpected'));
     } finally {
       setLoading(false);
     }
-  }, [spaceId, tenderId, accessToken, user?.id, isAuthLoading]);
+  }, [spaceId, tenderId, accessToken, user?.id, isAuthLoading, t]);
 
 
   useEffect(() => {
@@ -309,7 +289,7 @@ export default function TenderAnalysisPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to update tender name.");
+        throw new Error(errorData.detail || t('errors.updateTenderName'));
       }
 
       const updatedTender: TenderData = await response.json();
@@ -322,7 +302,7 @@ export default function TenderAnalysisPage({
       setIsEditingTenderName(false);
       setError(null);
     } catch (err: any) {
-      setError(err.message || "An error occurred while updating tender name.");
+      setError(err.message || t('errors.updateTenderName'));
       // Revert to original name on error
       setNewTenderName(tender.name);
       setIsEditingTenderName(false);
@@ -356,7 +336,7 @@ export default function TenderAnalysisPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to delete analysis result.");
+        throw new Error(errorData.detail || t('errors.deleteAnalysis'));
       }
 
       // Refresh data to show updated list
@@ -371,7 +351,7 @@ export default function TenderAnalysisPage({
 
   const handleGenerateAnalysis = async () => {
     if (!selectedAutomationId) {
-      setGenerateError("Please select an automation.");
+      setGenerateError(t('errors.selectAutomation'));
       return;
     }
 
@@ -400,7 +380,7 @@ export default function TenderAnalysisPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to start analysis generation.");
+        throw new Error(errorData.detail || t('errors.generateAnalysis'));
       }
 
       // Success
@@ -420,11 +400,11 @@ export default function TenderAnalysisPage({
   // Function to handle adding files
   const handleAddFiles = async () => {
     if (!tender || filesToUpload.length === 0) {
-      setUploadError("No files selected for upload.");
+      setUploadError(t('errors.noFilesSelected'));
       return;
     }
     if (!accessToken) {
-      setUploadError("Authentication token missing.");
+      setUploadError(t('errors.noAuth'));
       return;
     }
 
@@ -448,7 +428,7 @@ export default function TenderAnalysisPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to upload files.");
+        throw new Error(errorData.detail || t('errors.uploadFailed'));
       }
 
       const updatedTender = await response.json();
@@ -462,7 +442,7 @@ export default function TenderAnalysisPage({
       setFilesToUpload([]); // Clear selected files
       setError(null); // Clear any main error
     } catch (err: any) {
-      setUploadError(err.message || "An error occurred during file upload.");
+      setUploadError(err.message || t('errors.uploadError'));
     } finally {
       setIsUploadingFiles(false);
     }
@@ -472,7 +452,7 @@ export default function TenderAnalysisPage({
   const handleRemoveDocument = async (documentId: string) => {
     if (!tender) return;
     if (!accessToken) {
-      setUploadError("Authentication token missing.");
+      setUploadError(t('errors.noAuth'));
       return;
     }
 
@@ -486,7 +466,7 @@ export default function TenderAnalysisPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to remove document.");
+        throw new Error(errorData.detail || t('errors.removeDocument'));
       }
 
       const updatedTender = await response.json();
@@ -498,7 +478,7 @@ export default function TenderAnalysisPage({
       }));
       setError(null); // Clear any main error
     } catch (err: any) {
-      setError(err.message || "An error occurred during document removal.");
+      setError(err.message || t('errors.removeDocumentError'));
     }
   };
   
@@ -514,10 +494,10 @@ export default function TenderAnalysisPage({
     return (
       <div className="flex flex-col justify-center items-center min-h-screen text-red-500">
         <AlertTriangle className="h-16 w-16 mb-4" />
-        <h1 className="text-2xl font-bold mb-2">Error Fetching Tender</h1>
+        <h1 className="text-2xl font-bold mb-2">{t('errors.fetchTenderTitle')}</h1>
         <p>{error}</p>
         <Link href="/dashboard" className="mt-4 text-blue-500 hover:underline">
-          Go to Dashboard
+          {t('goToDashboard')}
         </Link>
       </div>
     )
@@ -527,10 +507,10 @@ export default function TenderAnalysisPage({
     return (
       <div className="flex flex-col justify-center items-center min-h-screen">
         <AlertTriangle className="h-16 w-16 mb-4 text-gray-400" />
-        <h1 className="text-2xl font-bold mb-2">Tender Not Found</h1>
-        <p>The requested tender could not be found.</p>
+        <h1 className="text-2xl font-bold mb-2">{t('notFound.title')}</h1>
+        <p>{t('notFound.message')}</p>
         <Link href="/dashboard" className="mt-4 text-blue-500 hover:underline">
-            Go to Dashboard
+            {t('goToDashboard')}
         </Link>
       </div>
     )
@@ -539,25 +519,17 @@ export default function TenderAnalysisPage({
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-background flex flex-col">
-        {/* <DashboardHeader /> REMOVED: Header is provided by RootLayout */}
-
         <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full">
           <Breadcrumb className="mb-8">
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbLink
-                  href="/dashboard"
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  Home
+                <BreadcrumbLink href="/dashboard" className="text-muted-foreground hover:text-foreground">
+                  {t('breadcrumbs.home')}
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
-                <BreadcrumbLink
-                  href={`/space/${spaceId}`}
-                  className="text-muted-foreground hover:text-foreground"
-                >
+                <BreadcrumbLink href={`/space/${spaceId}`} className="text-muted-foreground hover:text-foreground">
                   {workspaceName || spaceId} 
                 </BreadcrumbLink>
               </BreadcrumbItem>
@@ -580,9 +552,7 @@ export default function TenderAnalysisPage({
                       onChange={(e) => setNewTenderName(e.target.value)}
                       onBlur={handleUpdateTenderName}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleUpdateTenderName();
-                        }
+                        if (e.key === "Enter") handleUpdateTenderName();
                         if (e.key === "Escape") {
                           setIsEditingTenderName(false);
                           setNewTenderName(tender?.name || "");
@@ -591,15 +561,12 @@ export default function TenderAnalysisPage({
                       className="h-9 text-2xl font-semibold bg-background"
                     />
                   ) : (
-                    <CardTitle
-                      className="text-2xl text-foreground flex items-baseline gap-2 cursor-pointer"
-                      onDoubleClick={() => canEditTender && setIsEditingTenderName(true)}
-                    >
+                    <CardTitle className="text-2xl text-foreground flex items-baseline gap-2 cursor-pointer" onDoubleClick={() => canEditTender && setIsEditingTenderName(true)}>
                       {tender.name}
                     </CardTitle>
                   )}
                   <p className="text-muted-foreground mt-2">
-                    Created {format(new Date(tender.created_at), "MMMM d, yyyy")}
+                    {t('createdOn', { date: format(new Date(tender.created_at), "MMMM d, yyyy") })}
                   </p>
                 </div>
               </div>
@@ -609,41 +576,24 @@ export default function TenderAnalysisPage({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-medium text-muted-foreground">
-                      Attached Files
+                      {t('attachedFiles')}
                     </h3>
                     {canEditTender && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowAddFileDialog(true)}
-                        className="h-7 px-3 text-muted-foreground hover:text-foreground"
-                      >
-                        <Plus className="h-4 w-4 mr-1" /> Add Files
+                      <Button variant="ghost" size="sm" onClick={() => setShowAddFileDialog(true)} className="h-7 px-3 text-muted-foreground hover:text-foreground">
+                        <Plus className="h-4 w-4 mr-1" /> {t('addFilesButton')}
                       </Button>
                     )}
                   </div>
                   {tender.documents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No files uploaded
-                    </p>
+                    <p className="text-sm text-muted-foreground">{t('noFiles')}</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {tender.documents.map((file) => (
-                        <div
-                          key={file.id} // Use file.id as key if available and unique
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border"
-                        >
+                        <div key={file.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border">
                           <FileText className="h-4 w-4 text-red-500" />
-                          <span className="text-sm text-foreground">
-                            {file.filename}
-                          </span>
-                          {canEditTender && ( // Show delete button if user can edit
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleRemoveDocument(file.id)}
-                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                            >
+                          <span className="text-sm text-foreground">{file.filename}</span>
+                          {canEditTender && (
+                            <Button variant="ghost" size="icon" onClick={() => handleRemoveDocument(file.id)} className="h-6 w-6 text-muted-foreground hover:text-destructive">
                               <X className="h-4 w-4" />
                             </Button>
                           )}
@@ -656,15 +606,13 @@ export default function TenderAnalysisPage({
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">
-                      {tender.analysis_results.length} analysis result
-                      {tender.analysis_results.length !== 1 ? "s" : ""}
+                      {t('analysisCount', { count: tender.analysis_results.length })}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">
-                      {tender.documents.length} file
-                      {tender.documents.length !== 1 ? "s" : ""}
+                      {t('fileCount', { count: tender.documents.length })}
                     </span>
                   </div>
                 </div>
@@ -675,12 +623,12 @@ export default function TenderAnalysisPage({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-foreground">
-                Analysis Results
+                {t('analysisResultsTitle')}
               </h2>
               {canEditTender && (
                 <Button onClick={() => setShowGenerateDialog(true)}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Generate Analysis
+                  {t('generateAnalysisButton')}
                 </Button>
               )}
             </div>
@@ -697,14 +645,11 @@ export default function TenderAnalysisPage({
         <ChatbotWidget />
       </div>
 
-      {/* Add Files Dialog */}
       <Dialog open={showAddFileDialog} onOpenChange={setShowAddFileDialog}>
         <DialogContent className="rounded-xl border-border bg-card max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add More Files</DialogTitle>
-            <DialogDescription>
-              Upload additional PDF documents to this tender.
-            </DialogDescription>
+            <DialogTitle>{t('addFilesDialog.title')}</DialogTitle>
+            <DialogDescription>{t('addFilesDialog.description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-6 pt-4">
             {uploadError && (
@@ -713,14 +658,11 @@ export default function TenderAnalysisPage({
                 {uploadError}
               </div>
             )}
-
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                const droppedFiles = Array.from(e.dataTransfer.files).filter(
-                  (file) => file.type === "application/pdf"
-                );
+                const droppedFiles = Array.from(e.dataTransfer.files).filter((file) => file.type === "application/pdf");
                 setFilesToUpload((prev) => [...prev, ...droppedFiles]);
               }}
               onClick={() => fileInputRef.current?.click()}
@@ -728,58 +670,24 @@ export default function TenderAnalysisPage({
               aria-disabled={isUploadingFiles}
             >
               <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-foreground font-medium">
-                Drag and drop PDF files here
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                or click to browse from your computer
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".pdf"
-                onChange={(e) => {
-                  if (e.target.files) {
-                    setFilesToUpload((prev) => [...prev, ...Array.from(e.target.files)]);
-                  }
-                }}
-                className="hidden"
-                disabled={isUploadingFiles}
-              />
+              <p className="text-foreground font-medium">{t('addFilesDialog.dragAndDrop')}</p>
+              <p className="text-sm text-muted-foreground mt-1">{t('addFilesDialog.orBrowse')}</p>
+              <input ref={fileInputRef} type="file" multiple accept=".pdf" onChange={(e) => { if (e.target.files) { setFilesToUpload((prev) => [...prev, ...Array.from(e.target.files)]); } }} className="hidden" disabled={isUploadingFiles} />
             </div>
-
             {filesToUpload.length > 0 && (
               <div className="space-y-2">
-                <Label className="text-foreground">
-                  Selected Files ({filesToUpload.length})
-                </Label>
+                <Label className="text-foreground">{t('addFilesDialog.selectedFiles', { count: filesToUpload.length })}</Label>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
                   {filesToUpload.map((file, index) => (
-                    <div
-                      key={`${file.name}-${index}`}
-                      className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/50"
-                    >
+                    <div key={`${file.name}-${index}`} className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/50">
                       <div className="flex items-center gap-3">
                         <FileText className="h-5 w-5 text-red-500 flex-shrink-0" />
                         <div className="min-w-0">
-                          <p className="text-sm text-foreground truncate max-w-[250px]">
-                            {file.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {(file.size / 1024).toFixed(1)} KB
-                          </p>
+                          <p className="text-sm text-foreground truncate max-w-[250px]">{file.name}</p>
+                          <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setFilesToUpload((prev) => prev.filter((_, i) => i !== index));
-                        }}
-                        className="text-muted-foreground hover:text-destructive transition-colors p-1"
-                        aria-label={`Remove ${file.name}`}
-                        disabled={isUploadingFiles}
-                      >
+                      <button onClick={(e) => { e.stopPropagation(); setFilesToUpload((prev) => prev.filter((_, i) => i !== index)); }} className="text-muted-foreground hover:text-destructive transition-colors p-1" aria-label={`Remove ${file.name}`} disabled={isUploadingFiles}>
                         <X className="h-4 w-4" />
                       </button>
                     </div>
@@ -789,42 +697,25 @@ export default function TenderAnalysisPage({
             )}
           </div>
           <DialogFooter className="pt-6">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowAddFileDialog(false);
-                setFilesToUpload([]);
-                setUploadError(null);
-              }}
-              disabled={isUploadingFiles}
-            >
-              Cancel
+            <Button variant="outline" onClick={() => { setShowAddFileDialog(false); setFilesToUpload([]); setUploadError(null); }} disabled={isUploadingFiles}>
+              {t('addFilesDialog.cancelButton')}
             </Button>
-            <Button
-              onClick={handleAddFiles}
-              disabled={filesToUpload.length === 0 || isUploadingFiles}
-            >
+            <Button onClick={handleAddFiles} disabled={filesToUpload.length === 0 || isUploadingFiles}>
               {isUploadingFiles ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Uploading...
-                </>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('addFilesDialog.uploadingButton')}</>
               ) : (
-                "Upload Files"
+                t('addFilesDialog.uploadButton')
               )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Generate Analysis Dialog */}
       <Dialog open={showGenerateDialog} onOpenChange={setShowGenerateDialog}>
         <DialogContent className="rounded-xl border-border bg-card">
           <DialogHeader>
-            <DialogTitle>Generate New Analysis</DialogTitle>
-            <DialogDescription>
-              Select an automation and provide a name for this analysis run.
-            </DialogDescription>
+            <DialogTitle>{t('generateAnalysisDialog.title')}</DialogTitle>
+            <DialogDescription>{t('generateAnalysisDialog.description')}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             {generateError && (
@@ -834,40 +725,26 @@ export default function TenderAnalysisPage({
               </div>
             )}
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="analysis-name" className="text-right">
-                Name
-              </Label>
-              <Input
-                id="analysis-name"
-                value={newAnalysisName}
-                onChange={(e) => setNewAnalysisName(e.target.value)}
-                placeholder="Optional, e.g., 'Initial Price Check'"
-                className="col-span-3"
-              />
+              <Label htmlFor="analysis-name" className="text-right">{t('generateAnalysisDialog.nameLabel')}</Label>
+              <Input id="analysis-name" value={newAnalysisName} onChange={(e) => setNewAnalysisName(e.target.value)} placeholder={t('generateAnalysisDialog.namePlaceholder')} className="col-span-3" />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="automation" className="text-right">
-                Automation
-              </Label>
+              <Label htmlFor="automation" className="text-right">{t('generateAnalysisDialog.automationLabel')}</Label>
               <Select onValueChange={setSelectedAutomationId} value={selectedAutomationId || undefined}>
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select an automation" />
-                </SelectTrigger>
+                <SelectTrigger className="col-span-3"><SelectValue placeholder={t('generateAnalysisDialog.automationPlaceholder')} /></SelectTrigger>
                 <SelectContent>
                   {automations.map((auto) => (
-                    <SelectItem key={auto.id} value={auto.id}>
-                      {auto.name}
-                    </SelectItem>
+                    <SelectItem key={auto.id} value={auto.id}>{auto.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowGenerateDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowGenerateDialog(false)}>{t('generateAnalysisDialog.cancelButton')}</Button>
             <Button onClick={handleGenerateAnalysis} disabled={!selectedAutomationId || isGenerating}>
               {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Generate
+              {t('generateAnalysisDialog.generateButton')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -876,18 +753,16 @@ export default function TenderAnalysisPage({
        <AlertDialog open={!!resultToDeleteId} onOpenChange={(open) => !open && setResultToDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete this analysis result.
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t('deleteAnalysisDialog.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('deleteAnalysisDialog.description')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setResultToDeleteId(null)} disabled={isDeleting}>
-              Cancel
+              {t('deleteAnalysisDialog.cancelButton')}
             </AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmDelete} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
               {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Delete
+              {t('deleteAnalysisDialog.deleteButton')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
