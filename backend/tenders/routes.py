@@ -29,7 +29,7 @@ from backend.tenders.tenders_utils import (
     create_tender, get_tender_by_id, get_tenders_by_workspace,
     update_tender, delete_tender, add_analysis_result_to_tender,
     delete_analysis_result, delete_document, add_documents_to_existing_tender,
-    create_placeholder_analysis, update_analysis_result, get_analysis_by_id,
+    create_placeholder_analysis, update_analysis_result, get_analysis_by_id, get_tender_by_analysis_id,
     get_all_tenders_for_user, get_mongo_db, MongoDB, check_for_existing_analysis
 )
 from backend.automations.models import Automation
@@ -445,49 +445,74 @@ async def run_analysis_in_background(
     
     async with httpx.AsyncClient() as client:
         try:
+            # 1. Call the external automation service
             response = await client.post(
                 automation_url,
                 json={"tender_id": tender_id, "analysis_id": analysis_id},
                 timeout=900.0,
             )
             response.raise_for_status()
-
-            verified_analysis_doc = None
-            max_retries = 15
-            for _ in range(max_retries):
-                verified_analysis_doc = await MongoDB.database.analysis_results.find_one({"_id": analysis_id})
-                if verified_analysis_doc:
-                    break
-                await asyncio.sleep(2)
             
-            if not verified_analysis_doc:
-                raise Exception("Analysis result not found in database after successful automation run (30s timeout).")
+            # This is the correct analysis data from the automation
+            analysis_data = response.json()
 
-            analysis_data = verified_analysis_doc.get("data")
-            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.COMPLETED, data=analysis_data)
+            # 2. After getting the result, check if the parent tender still exists
+            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
+            if not tender:
+                print(f"Tender for analysis_id {analysis_id} was deleted during processing. Aborting update.")
+                await manager_instance.send_to_analysis_id({"status": "ABORTED", "error": "Tender was deleted."}, analysis_id)
+                # No need to do anything with analysis_data, as the parent is gone
+                return
+
+            # 3. If tender exists, proceed with the update
+            await update_analysis_result(
+                MongoDB.database, 
+                tender.id,  # Use the confirmed tender ID
+                analysis_id, 
+                status=AnalysisStatus.COMPLETED, 
+                data=analysis_data
+            )
             
+            # 4. Log the successful event
             async for db in get_db():
                 await log_tender_event(
                     db=db,
                     action=AuditAction.TENDER_ANALYZE,
-                    tender_id=tender_id,
-                    workspace_id=uuid.UUID(workspace_id),
+                    tender_id=tender.id,
+                    workspace_id=uuid.UUID(tender.workspace_id),
                     user_id=uuid.UUID(user_id),
                     ip_address=client_ip,
                     details="Generated analysis with automation",
                     payload={"automation_id": automation_id}
                 )
+
         except (httpx.HTTPStatusError, httpx.RequestError) as e:
             error_message = f"Error from automation service: {e}"
-            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
-            await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+            # Also check for tender existence before updating with an error
+            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
+            if tender:
+                await update_analysis_result(MongoDB.database, tender.id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
+                await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+            else:
+                print(f"Tender for analysis_id {analysis_id} was deleted. Skipping error update.")
+
         except Exception as e:
             error_message = f"An unexpected error occurred in background task: {e}"
-            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
-            await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+            # Also check for tender existence before updating with an error
+            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
+            if tender:
+                await update_analysis_result(MongoDB.database, tender.id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
+                await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+            else:
+                print(f"Tender for analysis_id {analysis_id} was deleted. Skipping error update.")
         else:
-            analysis_result = await get_analysis_by_id(MongoDB.database, tender_id, analysis_id)
-            await manager_instance.send_to_analysis_id({"status": "COMPLETED", "result": analysis_result.model_dump()}, analysis_id)
+            # 5. If everything was successful, notify the client via WebSocket
+            analysis_result = await get_analysis_by_id(MongoDB.database, tender.id, analysis_id)
+            if analysis_result:
+                 await manager_instance.send_to_analysis_id({"status": "COMPLETED", "result": analysis_result.model_dump()}, analysis_id)
+            else:
+                 # This case is unlikely if the update succeeded, but good to handle
+                 await manager_instance.send_to_analysis_id({"status": "FAILED", "error": "Could not retrieve final analysis."}, analysis_id)
 
 @router.post("/{tender_id}/generate_analysis", status_code=status.HTTP_202_ACCEPTED, response_model=GenerateAnalysisResponse, tags=["Analysis"])
 async def api_generate_analysis(

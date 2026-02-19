@@ -727,6 +727,27 @@ async def update_analysis_result(
     )
     return result.modified_count > 0
 
+async def get_tender_by_analysis_id(
+    db: Any,
+    analysis_id: str
+) -> Optional[Tender]:
+    """
+    Finds a tender by one of its analysis_results IDs.
+
+    Args:
+        db: MongoDB database
+        analysis_id: The ID of the analysis result to find.
+
+    Returns:
+        The full tender document if found, otherwise None.
+    """
+    tender_doc = await db.tenders.find_one({"analysis_results.id": analysis_id})
+    if tender_doc:
+        tender_doc["id"] = str(tender_doc["_id"])
+        return Tender(**tender_doc)
+    return None
+
+
 async def get_analysis_by_id(
     db: Any,
     tender_id: str,

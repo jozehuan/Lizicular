@@ -2,7 +2,7 @@ from typing import List, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 import uuid
 
@@ -244,7 +244,15 @@ async def delete_workspace(
     if not workspace or workspace.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not an owner of the workspace")
 
+    # Delete associated tenders and files from MongoDB
     await delete_tenders_by_workspace(MongoDB.database, str(workspace.id))
+    
+    # Delete all members associated with the workspace
+    await db.execute(
+        delete(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id)
+    )
+
+    # Now delete the workspace itself
     await db.delete(workspace)
     await db.commit()
     
