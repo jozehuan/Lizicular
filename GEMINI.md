@@ -5,7 +5,7 @@ Esta aplicación es un proyecto para el desarrollo de una aplicación web llamad
 
 ## Stack Tecnológico
 - **BackEnd:** Python 3.10+ - FastAPI
-- **FrontEnd:** Node.js (Pendiente de inicialización)
+- **FrontEnd:** Next.js (App Router), React, TypeScript, Tailwind CSS, Shadcn/UI, Next-Intl
 - **Base de Datos:** PostgreSQL 15 (Identidad y Auditoría), MongoDB 6 (Licitaciones y Documentos).
 - **Caché y Seguridad:** Redis 7 (Lista negra de tokens, invalidación inmediata).
 - **Seguridad:** JWT (JSON Web Tokens) y OAuth2
@@ -53,6 +53,18 @@ Esta aplicación es un proyecto para el desarrollo de una aplicación web llamad
     - `/postgres-init`: Scripts SQL para Docker.
   - `/tests`: Pruebas automatizadas (test_auth.py, test_workspaces.py, test_tenders.py).
 - `docker-compose.yml`: Orquestación de servicios locales (PostgreSQL, Redis, MongoDB).
+- `/frontend`: Aplicación Next.js (App Router).
+  - `/app`: Rutas de la aplicación y componentes principales.
+    - `/[locale]`: Contiene todas las rutas internacionalizadas.
+      - `/dashboard`: Página principal del usuario.
+      - `/space/[spaceId]`: Vista detallada de un workspace.
+      - `/space/[spaceId]/tender/[tenderId]`: Vista de una licitación y sus análisis.
+    - `/api`: Rutas de API que actúan como Backend-for-Frontend (BFF).
+      - `/auth`: Endpoints de proxy para autenticación (login, refresh, logout).
+  - `/components`: Componentes de React reutilizables (UI, layout, etc.).
+  - `/lib`: Lógica principal del lado del cliente (contexto de autenticación, hook `useApi`, etc.).
+  - `/hooks`: Hooks de React personalizados.
+  - `next.config.mjs`: Configuración de Next.js, incluyendo el proxy de reescritura para la API.
 
 ## Estado del Proyecto
 El módulo de autenticación y seguridad es completamente funcional y ha sido expandido con capacidades de nivel empresarial:
@@ -68,9 +80,13 @@ El módulo de autenticación y seguridad es completamente funcional y ha sido ex
     - **Motores de IA Flexibles:** La arquitectura incluye un `EngineAIFactory` que permite intercambiar el motor de LLM subyacente. Actualmente está configurado para usar Azure OpenAI.
     - **Autenticación y Auditoría:** El endpoint `/chatbot/chat` está protegido y requiere autenticación de usuario. Todas las interacciones (preguntas, respuestas y errores) se registran en la tabla de `audit_logs` de PostgreSQL.
     - **Observabilidad:** Integración con `Langfuse` para trazar y depurar las interacciones y el razonamiento del agente en tiempo real.
-8. **Generación de Análisis Asíncrono:** Se ha implementado un flujo de generación de análisis asíncrono con notificaciones en tiempo real vía WebSockets. El frontend puede iniciar una tarea de análisis y, en lugar de esperar, recibe una respuesta inmediata. El estado y el resultado final de la tarea son enviados al frontend a través de un WebSocket, eliminando la necesidad de polling.
-9. **Gestión de Automatismos:** Se ha creado una nueva tabla `autos` en PostgreSQL para almacenar información sobre los automatismos (como webhooks de n8n) y un endpoint para gestionarlos.
-10. **Modelos de Datos Flexibles:** Los modelos de Pydantic se han actualizado para soportar estructuras de datos más complejas en los resultados de los análisis, incluyendo un nuevo JSON `estimacion`.
+8. **Arquitectura de Red y API (BFF):** El frontend utiliza un patrón de **Backend-for-Frontend (BFF)**, donde la aplicación Next.js actúa como un proxy seguro entre el navegador del cliente y el backend de FastAPI. Esto mejora la seguridad (ocultando la URL del backend y las claves de API), simplifica la gestión de cookies de autenticación y evita problemas de CORS. La comunicación se gestiona de dos maneras:
+    - **Proxy de Autenticación Manual:** Las rutas en `/app/api/auth/` (ej. `login`, `refresh`) son manejadas por código explícito en el servidor de Next.js. Estas rutas leen y escriben cookies `HttpOnly` y orquestan el flujo de autenticación con el backend, asegurando que los tokens sensibles nunca se expongan directamente al cliente.
+    - **Proxy de API General (Reescritura):** Las llamadas a la API generales (ej. para obtener datos de workspaces o licitaciones) se dirigen al prefijo `/api/backend/*` en el frontend. Una regla de reescritura en `next.config.mjs` redirige de forma transparente estas peticiones al backend de FastAPI, utilizando una variable de entorno (`process.env.BACKEND_URL`) para definir la URL de destino. El hook `useApi` se encarga de realizar estas llamadas de forma centralizada.
+9. **Generación de Análisis Asíncrono:** Se ha implementado un flujo de generación de análisis asíncrono con notificaciones en tiempo real vía WebSockets. El frontend puede iniciar una tarea de análisis y, en lugar de esperar, recibe una respuesta inmediata. El estado y el resultado final de la tarea son enviados al frontend a través de un WebSocket, eliminando la necesidad de polling.
+10. **Gestión de Automatismos:** Se ha creado una nueva tabla `autos` en PostgreSQL para almacenar información sobre los automatismos (como webhooks de n8n) y un endpoint para gestionarlos.
+11. **Modelos de Datos Flexibles:** Los modelos de Pydantic se han actualizado para soportar estructuras de datos más complejas en los resultados de los análisis, incluyendo un nuevo JSON `estimacion`.
+12. **Internacionalización (i18n):** El frontend está preparado para soportar múltiples idiomas. Utiliza la librería `next-intl` para gestionar las traducciones, con los textos centralizados en archivos JSON (`/messages/{locale}.json`) y un enrutamiento que incluye el locale en la URL (ej. `/en/...` o `/es/...`).
 
 ### Arquitectura de Autenticación ("Gold Standard")
 
@@ -157,27 +173,3 @@ A partir de este momento, la aplicación tiene el `accessToken` en memoria para 
 6. Siempre que se modifique, añada o elimine un endpoint, tanto en back como en front, se deben modificar los archivos `GEMINI.md` y `README.md`.
 
 ---
-### Actualizaciones Recientes (Febrero 2026)
-
-Se han realizado una serie de correcciones y mejoras en el frontend para estabilizar la aplicación, solucionar errores de ejecución y mejorar la experiencia de usuario.
-
-#### Frontend (`Next.js`)
-- **Solución de Errores de Referencia:** Corregido un error donde `DashboardHeader` no estaba definido en varias páginas.
-- **Compatibilidad con React 19:** Actualizada la forma de acceder a los parámetros de ruta dinámica (`params`) en páginas de cliente para ser compatible con las últimas versiones de Next.js y React.
-- **Modernización de Componentes:** Actualizado el uso del componente `<Link>` de Next.js para eliminar la etiqueta anidada `<a>`, siguiendo las nuevas convenciones.
-- **Refactorización Crítica de Autenticación:**
-    - Se ha refactorizado completamente el flujo de autenticación para seguir las mejores prácticas de seguridad ("Gold Standard"). El `accessToken` ya no se expone en el cuerpo de las respuestas de login/signup, mitigando riesgos de XSS.
-    - Se ha solucionado una condición de carrera (`race condition`) que provocaba un error `401 Unauthorized` al intentar refrescar el token inmediatamente después del login. El `AuthContext` ahora gestiona el ciclo de vida del token de forma robusta.
-    - Se ha corregido el reenvío de cookies en las API Routes de Next.js para garantizar que el `refreshToken` se propague correctamente entre el navegador, el servidor de Next.js y el backend de FastAPI.
-- **Corrección de Autenticación (Previa):**
-    - Solucionado un error crítico en el hook `useApi` que impedía que el token de autenticación se enviara correctamente en las llamadas a la API.
-    - Corregida la interfaz de `User` en el contexto de autenticación para incluir la propiedad opcional `picture`, evitando errores al renderizar el avatar del usuario.
-- **Configuración de Red y API:**
-    - Las llamadas a la API ahora se realizan directamente al servidor backend (ej. `http://localhost:8000`) utilizando la variable de entorno `NEXT_PUBLIC_BACKEND_URL`. Para evitar problemas de CORS, es necesario configurar el soporte CORS directamente en el backend de FastAPI.
-    - Eliminado un bucle infinito de llamadas a la API en la página de detalles de la licitación mediante la memoización de la función de fetching de datos con `useCallback`.
-- **Mejoras en la Experiencia de Usuario (UX):**
-    - Eliminado el header duplicado que aparecía en algunas páginas.
-    - Corregido el flujo de logout para que siempre redirija a la página principal (`/`) de forma predecible, solucionando una condición de carrera que a veces redirigía a `/auth`.
-
-#### Backend (`FastAPI`)
-**Conclusiones de la Refactorización:** El backend ha sido sometido a una importante revisión de seguridad y estabilidad. Como conclusión, la autenticación de usuarios es ahora significativamente más segura, cerrando vulnerabilidades críticas de toma de cuentas y fuga de información. La arquitectura es más robusta y escalable, gracias a la correcta gestión de sesiones y tareas en segundo plano, lo que garantiza el funcionamiento fiable de características clave como la generación de análisis y el login con OAuth en entornos de producción. Se han resuelto bugs de lógica que afectaban la integridad de los datos, asegurando que las operaciones como la carga y borrado de documentos se comporten de manera predecible y atómica. En resumen, el estado del backend ha pasado de ser una prueba de concepto funcional a tener una base preparada para producción.
