@@ -126,9 +126,9 @@ export function SpacesList({ spaces, onDeleteSpace }: SpacesListProps) {
                             </span>
                           </div>
                           <div className="flex items-center gap-3">
-                            {finalStatus && (
+                            {finalStatus && statusKey && (
                               <Badge variant="outline" className={`rounded-lg ${getStatusBadgeClasses(finalStatus)}`}>
-                                {tStatus(statusKey) || finalStatus.toUpperCase()}
+                                {tStatus.has(statusKey) ? tStatus(statusKey) : finalStatus.toUpperCase()}
                               </Badge>
                             )}
                             <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />

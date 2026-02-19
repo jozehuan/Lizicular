@@ -210,7 +210,7 @@
       "uploadError": "Ocurrió un error durante la subida de archivos.",
       "removeDocument": "Error al eliminar el documento.",
       "removeDocumentError": "Ocurrió un error al eliminar el documento.",
-      "fetchTenderTitle": "Error al Obtener la Licitación"
+      "fetchTenderTitle": "Error al obtener la licitación"
     },
     "notFound": {
       "title": "Licitación no encontrada",

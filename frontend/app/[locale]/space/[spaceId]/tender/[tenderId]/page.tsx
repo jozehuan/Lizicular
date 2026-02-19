@@ -226,13 +226,16 @@ export default function TenderAnalysisPage({
           const ws = new WebSocket(wsUrl);
 
           ws.onmessage = (event) => {
-            const message = JSON.parse(event.data);
-            if (message.status === 'COMPLETED' || message.status === 'FAILED') {
-              // Refetch all data to ensure UI is in sync with the database
-              fetchTenderAndWorkspaceData();
+            try {
+              const message = JSON.parse(event.data);
+              if (message.status === 'COMPLETED' || message.status === 'FAILED') {
+                // Refetch all data to ensure UI is in sync with the database
+                fetchTenderAndWorkspaceData();
+              }
+            } catch (e) {
+              console.error('Failed to parse WebSocket message:', e);
             }
           };
-
           ws.onerror = (error) => {
             console.error(`WebSocket error for analysis ${result.id}:`, error);
           };

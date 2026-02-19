@@ -33,9 +33,10 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - **UI:** React, Tailwind CSS, Shadcn/UI
 - **Internacionalización:** Soporte para múltiples idiomas con `next-intl`.
 
-### **Chatbot (Backend)**
-- **Arquitectura de Agentes:** Se ha implementado un "meta-agente" conversacional basado en `LlamaIndex` que orquesta un conjunto de herramientas (agentes especializados).
+### **Chatbot**
+- **Arquitectura de Agentes (Backend):** Se ha implementado un "meta-agente" conversacional basado en `LlamaIndex` que orquesta un conjunto de herramientas (agentes especializados).
 - **Agente de Revisión (`ReviewAgent`):** Un agente-herramienta que permite al chatbot consultar de forma segura los datos del usuario autenticado (workspaces, tenders, etc.) a través de los endpoints internos de la API.
+- **Interfaz de Usuario (Frontend):** Un widget de chat flotante, disponible en el dashboard del usuario, proporciona una interfaz de conversación directa. Este componente, impulsado por un Contexto de React, se comunica de forma segura con el backend a través del proxy BFF de Next.js.
 - **Extensibilidad:** El sistema de `AgentFactory` y `EngineAIFactory` permite añadir nuevos agentes y motores de LLM (actualmente Azure OpenAI) de forma modular.
 - **Observabilidad y Auditoría:** Todas las conversaciones se trazan con `Langfuse` para depuración y se registran en la tabla de `audit_logs` de PostgreSQL para un seguimiento completo.
 
@@ -60,6 +61,10 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - `backend/tests/`: Pruebas automatizadas.
 
 ## 🔌 API Endpoints
+
+> **Nota sobre la Arquitectura (BFF):** La siguiente lista documenta los endpoints del backend (FastAPI). El frontend **nunca** los llama directamente. En su lugar, utiliza un patrón de **Backend-for-Frontend (BFF)**:
+> - **Rutas de Autenticación:** Se accede a través de proxies manuales en Next.js (ej. el frontend llama a `/api/auth/login`, que a su vez llama al backend en `/auth/login/json`).
+> - **Otras Rutas de API:** Se accede a través de un proxy genérico (ej. el frontend llama a `/api/backend/workspaces/`, que Next.js redirige al backend en `/workspaces/`).
 
 ### **Autenticación Local (en `/auth/routes.py`)**
 - `POST /auth/signup`: Registro de nuevos usuarios.

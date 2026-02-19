@@ -185,8 +185,7 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
                             variant="outline"
                             className={getStatusBadgeClasses(normalizedStatus)}
                           >
-                            {tStatus(normalizedStatus) || result.status.toUpperCase()}
-                          </Badge>
+                            {tStatus(normalizedStatus) || normalizedStatus.toUpperCase()}                          </Badge>
                         </TooltipTrigger>
                         {normalizedStatus === 'failed' && (
                           <TooltipContent>

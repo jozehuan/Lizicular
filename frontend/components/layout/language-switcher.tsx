@@ -16,8 +16,10 @@ export function LanguageSwitcher() {
   const locale = useLocale();
 
   const handleChange = (newLocale: string) => {
-    // This regex replaces the current locale segment in the path with the new one.
-    const newPath = pathname.replace(/^\/(es|en)/, `/${newLocale}`);
+    const localePattern = /^\/(es|en)(\/|$)/;
+    const newPath = localePattern.test(pathname)
+      ? pathname.replace(localePattern, `/${newLocale}$2`)
+      : `/${newLocale}${pathname}`;
     router.replace(newPath);
   };
 

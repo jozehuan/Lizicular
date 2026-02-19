@@ -4,8 +4,8 @@ export const locales = ['en', 'es'];
 export const defaultLocale = 'es';
  
 export default getRequestConfig(async ({locale}) => {
-  // Fallback si locale no está definido por alguna razón
-  const activeLocale = locale || defaultLocale;
+  // Fallback to default if locale is undefined or not in allowed list
+  const activeLocale = locale && locales.includes(locale) ? locale : defaultLocale;
   
   return {
     locale: activeLocale,

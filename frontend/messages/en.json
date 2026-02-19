@@ -210,7 +210,7 @@
       "uploadError": "An error occurred during file upload.",
       "removeDocument": "Failed to remove document.",
       "removeDocumentError": "An error occurred during document removal.",
-      "fetchTenderTitle": "Error Fetching Tender"
+      "fetchTenderTitle": "Error fetching tender"
     },
     "notFound": {
       "title": "Tender not found",
