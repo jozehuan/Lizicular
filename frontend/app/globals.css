@@ -131,6 +131,32 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg id='hexagons' fill='%23104d7a' fill-opacity='0.1' fill-rule='nonzero'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.99 7.5V30L0 22.5zM15 30v-7.5L28 15v7.5z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
     background-position: center;
   }
+
+  /* Custom scrollbar utility to ensure horizontal scroll is always visible and styled */
+  .scrollbar-show {
+    scrollbar-width: auto;
+    scrollbar-color: #cbd5e1 transparent;
+    overflow-x: auto;
+  }
+
+  .scrollbar-show::-webkit-scrollbar {
+    height: 8px;
+    display: block;
+  }
+
+  .scrollbar-show::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-show::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 20px;
+    border: 2px solid transparent;
+  }
+
+  .scrollbar-show::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
+  }
 }
 
 @font-face {
