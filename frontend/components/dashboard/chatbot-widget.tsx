@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useRef, useEffect } from "react"
+import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -9,6 +10,7 @@ import { useChatbot } from "@/lib/chatbot-context"
 import ReactMarkdown from 'react-markdown'
 
 export function ChatbotWidget() {
+  const t = useTranslations("ChatbotWidget");
   const [isOpen, setIsOpen] = useState(false)
   const [inputValue, setInputValue] = useState("")
   const { messages, isReplying, sendMessage, clearHistory } = useChatbot()
@@ -70,7 +72,7 @@ export function ChatbotWidget() {
                 <div className="flex justify-start">
                     <div className="max-w-[80%] rounded-xl px-4 py-2.5 bg-muted text-foreground flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin"/>
-                        <p className="text-sm leading-relaxed">Lizi is typing...</p>
+                        <p className="text-sm leading-relaxed">{t('typing')}</p>
                     </div>
                 </div>
               )}
@@ -82,7 +84,7 @@ export function ChatbotWidget() {
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyPress}
-                  placeholder={isReplying ? "Waiting for response..." : "Type your message..."}
+                  placeholder={isReplying ? t('waiting') : t('placeholder')}
                   className="flex-1 h-10 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
                   disabled={isReplying}
                 />
@@ -93,7 +95,7 @@ export function ChatbotWidget() {
                   disabled={!inputValue.trim() || isReplying}
                 >
                   <Send className="h-4 w-4" />
-                  <span className="sr-only">Send message</span>
+                  <span className="sr-only">{t('sendAria')}</span>
                 </Button>
                 <Button
                   onClick={clearHistory}
@@ -102,7 +104,7 @@ export function ChatbotWidget() {
                   disabled={isReplying}
                 >
                   <Trash2 className="h-4 w-4" />
-                  <span className="sr-only">Delete chat</span>
+                  <span className="sr-only">{t('deleteAria')}</span>
                 </Button>
               </div>
             </div>
@@ -114,7 +116,7 @@ export function ChatbotWidget() {
         onClick={() => setIsOpen(!isOpen)}
         size="icon"
         className="h-14 w-14 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg"
-        aria-label={isOpen ? "Close chat" : "Open chat"}
+        aria-label={isOpen ? t('closeAria') : t('openAria')}
       >
         {isOpen ? (
           <X className="h-6 w-6" />

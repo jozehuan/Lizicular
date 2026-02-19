@@ -4,6 +4,7 @@ import React from "react"
 import Image from "next/image"
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useTranslations } from "next-intl"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -17,11 +18,13 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Loader2, AlertCircle } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { loginSchema, signupSchema } from "@/lib/validations"
+import { cn } from "@/lib/utils"
 
 type LoginFormValues = z.infer<typeof loginSchema>
 type SignupFormValues = z.infer<typeof signupSchema>
 
-export function AuthForm() {
+export function AuthForm({ className }: { className?: string }) {
+  const t = useTranslations("AuthForm")
   const [activeTab, setActiveTab] = useState("login")
   const [error, setError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -54,11 +57,11 @@ export function AuthForm() {
       if (result.success) {
         router.push("/dashboard")
       } else {
-        setError(result.error || "Login failed")
+        setError(result.error || t('errors.loginFailed'))
         loginForm.setValue("password", "") // Clear only password
       }
     } catch (err) {
-      setError("An unexpected error occurred")
+      setError(t('errors.unexpected'))
     } finally {
       setIsSubmitting(false)
     }
@@ -72,11 +75,11 @@ export function AuthForm() {
       if (result.success) {
         router.push("/dashboard")
       } else {
-        setError(result.error || "Signup failed")
+        setError(result.error || t('errors.signupFailed'))
         signupForm.setValue("password", "") // Clear only password
       }
     } catch (err) {
-      setError("An unexpected error occurred")
+      setError(t('errors.unexpected'))
     } finally {
       setIsSubmitting(false)
     }
@@ -91,7 +94,7 @@ export function AuthForm() {
   }
 
   return (
-    <Card className="w-full max-w-md border-border rounded-xl">
+    <Card className={cn("w-full max-w-lg mx-auto border-border rounded-xl", className)}>
       <CardContent className="space-y-6 pt-6">
         {error && (
           <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 text-destructive text-sm">
@@ -106,18 +109,24 @@ export function AuthForm() {
             loginForm.clearErrors();
             signupForm.clearErrors();
         }} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-muted rounded-xl">
+          <TabsList className="relative grid w-full grid-cols-2 bg-muted rounded-xl p-1">
+            <div
+              className={cn(
+                "absolute inset-y-1 w-[calc(50%-4px)] bg-background rounded-lg shadow-sm transition-all duration-300 ease-in-out",
+                activeTab === "login" ? "left-1" : "left-[calc(50%+4px)]"
+              )}
+            />
             <TabsTrigger 
               value="login" 
-              className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-foreground"
+              className="z-10 rounded-lg bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
-              Login
+              {t('login')}
             </TabsTrigger>
             <TabsTrigger 
               value="signup"
-              className="rounded-lg data-[state=active]:bg-card data-[state=active]:text-foreground"
+              className="z-10 rounded-lg bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
-              Sign Up
+              {t('signup')}
             </TabsTrigger>
           </TabsList>
 
@@ -126,7 +135,7 @@ export function AuthForm() {
             <div className="relative">
               <Separator className="bg-border" />
               <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-3 text-sm text-muted-foreground">
-                Sign in with your email
+                {t('loginTitle')}
               </span>
             </div>
 
@@ -137,11 +146,11 @@ export function AuthForm() {
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email Address</FormLabel>
+                      <FormLabel>{t('emailLabel')}</FormLabel>
                       <FormControl>
                         <Input 
                           type="email" 
-                          placeholder="you@example.com"
+                          placeholder={t('emailPlaceholder')}
                           disabled={isSubmitting}
                           className="h-11 rounded-xl border-border bg-card text-foreground placeholder:text-muted-foreground"
                           {...field} 
@@ -156,11 +165,11 @@ export function AuthForm() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password</FormLabel>
+                      <FormLabel>{t('passwordLabel')}</FormLabel>
                       <FormControl>
                         <Input 
                           type="password"
-                          placeholder="Enter your password"
+                          placeholder={t('passwordPlaceholder')}
                           disabled={isSubmitting}
                           className="h-11 rounded-xl border-border bg-card text-foreground placeholder:text-muted-foreground"
                           {...field}
@@ -178,10 +187,10 @@ export function AuthForm() {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Signing In...
+                      {t('signingInButton')}
                     </>
                   ) : (
-                    "Sign In"
+                    t('signInButton')
                   )}
                 </Button>
               </form>
@@ -193,7 +202,7 @@ export function AuthForm() {
             <div className="relative">
               <Separator className="bg-border" />
               <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-3 text-sm text-muted-foreground">
-                Create an account
+                {t('signupTitle')}
               </span>
             </div>
 
@@ -204,10 +213,10 @@ export function AuthForm() {
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Full Name</FormLabel>
+                      <FormLabel>{t('nameLabel')}</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="John Doe"
+                          placeholder={t('namePlaceholder')}
                           disabled={isSubmitting}
                           className="h-11 rounded-xl border-border bg-card text-foreground placeholder:text-muted-foreground"
                           {...field}
@@ -222,11 +231,11 @@ export function AuthForm() {
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email Address</FormLabel>
+                      <FormLabel>{t('emailLabel')}</FormLabel>
                       <FormControl>
                         <Input 
                           type="email" 
-                          placeholder="you@example.com"
+                          placeholder={t('emailPlaceholder')}
                           disabled={isSubmitting}
                           className="h-11 rounded-xl border-border bg-card text-foreground placeholder:text-muted-foreground"
                           {...field} 
@@ -241,11 +250,11 @@ export function AuthForm() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password</FormLabel>
+                      <FormLabel>{t('passwordLabel')}</FormLabel>
                       <FormControl>
                         <Input 
                           type="password"
-                          placeholder="Create a password (min 8 characters)"
+                          placeholder={t('passwordPlaceholderSignup')}
                           disabled={isSubmitting}
                           className="h-11 rounded-xl border-border bg-card text-foreground placeholder:text-muted-foreground"
                           {...field}
@@ -263,10 +272,10 @@ export function AuthForm() {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating Account...
+                      {t('creatingAccountButton')}
                     </>
                   ) : (
-                    "Create Account"
+                    t('createAccountButton')
                   )}
                 </Button>
               </form>

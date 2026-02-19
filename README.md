@@ -18,7 +18,7 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - **Estrategia de Tokens Segura:**
   - **`accessToken` (15 min):** Un token de corta duración que se almacena exclusivamente en la memoria del frontend (React Context). Se utiliza para autorizar cada petición a la API. Al no persistir en `localStorage`, se mitiga el riesgo de robo por ataques XSS.
   - **`refreshToken` (7 días):** Un token de larga duración que se almacena en una **cookie `HttpOnly`, `Secure` y `SameSite=Lax`**. Es inaccesible para JavaScript y se utiliza únicamente para solicitar nuevos `accessToken`.
-- **Flujo de Autenticación Robusto:** Tras un login exitoso, el frontend no recibe el `accessToken` directamente. En su lugar, el `AuthContext` utiliza el `refreshToken` de la cookie para obtener de forma segura el `accessToken` inicial, que se gestiona en memoria.
+- **Flujo de Autenticación Robusto:** Tras el login, el `AuthContext` del frontend no llama directamente al backend, sino a las **API Routes de Next.js** que actúan como un proxy seguro (BFF). Estas rutas gestionan la comunicación con el backend de FastAPI y propagan la cookie `HttpOnly` del `refreshToken`, mientras que el `accessToken` se obtiene de forma segura y se mantiene solo en la memoria del cliente.
 - **Rotación de Tokens y Lista Negra:** Cada vez que se usa un `refreshToken`, se emite uno nuevo (rotación) y el anterior se invalida inmediatamente en una "lista negra" en Redis, previniendo ataques de reutilización.
 - **OAuth2 y RBAC:** Se mantiene la integración con proveedores externos y el sistema de roles a nivel de Workspace.
 - **Auditoría Universal:** Registro detallado de todos los eventos de seguridad y acceso para una trazabilidad completa.
@@ -27,13 +27,16 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - **Workspaces:** Organización lógica de licitaciones y equipos.
 - **Audit System:** Helpers para monitoreo, estadísticas y detección de actividad sospechosa.
 
-### **Front-End (En Desarrollo)**
-- **Entorno:** Node.js
-- **Framework:** React / Next.js (Planificado)
+### **Front-End (Implementado)**
+- **Framework:** Next.js (App Router)
+- **Lenguaje:** TypeScript
+- **UI:** React, Tailwind CSS, Shadcn/UI
+- **Internacionalización:** Soporte para múltiples idiomas con `next-intl`.
 
-### **Chatbot (Backend)**
-- **Arquitectura de Agentes:** Se ha implementado un "meta-agente" conversacional basado en `LlamaIndex` que orquesta un conjunto de herramientas (agentes especializados).
+### **Chatbot**
+- **Arquitectura de Agentes (Backend):** Se ha implementado un "meta-agente" conversacional basado en `LlamaIndex` que orquesta un conjunto de herramientas (agentes especializados).
 - **Agente de Revisión (`ReviewAgent`):** Un agente-herramienta que permite al chatbot consultar de forma segura los datos del usuario autenticado (workspaces, tenders, etc.) a través de los endpoints internos de la API.
+- **Interfaz de Usuario (Frontend):** Un widget de chat flotante, disponible en el dashboard del usuario, proporciona una interfaz de conversación directa. Este componente, impulsado por un Contexto de React, se comunica de forma segura con el backend a través del proxy BFF de Next.js.
 - **Extensibilidad:** El sistema de `AgentFactory` y `EngineAIFactory` permite añadir nuevos agentes y motores de LLM (actualmente Azure OpenAI) de forma modular.
 - **Observabilidad y Auditoría:** Todas las conversaciones se trazan con `Langfuse` para depuración y se registran en la tabla de `audit_logs` de PostgreSQL para un seguimiento completo.
 
@@ -58,6 +61,10 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - `backend/tests/`: Pruebas automatizadas.
 
 ## 🔌 API Endpoints
+
+> **Nota sobre la Arquitectura (BFF):** La siguiente lista documenta los endpoints del backend (FastAPI). El frontend **nunca** los llama directamente. En su lugar, utiliza un patrón de **Backend-for-Frontend (BFF)**:
+> - **Rutas de Autenticación:** Se accede a través de proxies manuales en Next.js (ej. el frontend llama a `/api/auth/login`, que a su vez llama al backend en `/auth/login/json`).
+> - **Otras Rutas de API:** Se accede a través de un proxy genérico (ej. el frontend llama a `/api/backend/workspaces/`, que Next.js redirige al backend en `/workspaces/`).
 
 ### **Autenticación Local (en `/auth/routes.py`)**
 - `POST /auth/signup`: Registro de nuevos usuarios.
@@ -132,25 +139,3 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 
 ---
 **Desarrollado para la automatización eficiente de licitaciones.**
-
----
-### Actualizaciones Recientes (Febrero 2026)
-
-Se han realizado una serie de correcciones y mejoras en el frontend para estabilizar la aplicación, solucionar errores de ejecución y mejorar la experiencia de usuario.
-
-#### Frontend (`Next.js`)
-- **Solución de Errores de Referencia:** Corregido un error donde `DashboardHeader` no estaba definido en varias páginas.
-- **Compatibilidad con React 19:** Actualizada la forma de acceder a los parámetros de ruta dinámica (`params`) en páginas de cliente para ser compatible con las últimas versiones de Next.js y React.
-- **Modernización de Componentes:** Actualizado el uso del componente `<Link>` de Next.js para eliminar la etiqueta anidada `<a>`, siguiendo las nuevas convenciones.
-- **Corrección de Autenticación:**
-    - Solucionado un error crítico en el hook `useApi` que impedía que el token de autenticación se enviara correctamente en las llamadas a la API.
-    - Corregida la interfaz de `User` en el contexto de autenticación para incluir la propiedad opcional `picture`, evitando errores al renderizar el avatar del usuario.
-- **Configuración de Red y API:**
-    - Las llamadas a la API ahora se realizan directamente al servidor backend (ej. `http://localhost:8000`) utilizando la variable de entorno `NEXT_PUBLIC_BACKEND_URL`. Para evitar problemas de CORS, es necesario configurar el soporte CORS directamente en el backend de FastAPI.
-    - Eliminado un bucle infinito de llamadas a la API en la página de detalles de la licitación mediante la memoización de la función de fetching de datos con `useCallback`.
-- **Mejoras en la Experiencia de Usuario (UX):**
-    - Eliminado el header duplicado que aparecía en algunas páginas.
-    - Corregido el flujo de logout para que siempre redirija a la página principal (`/`) de forma predecible, solucionando una condición de carrera que a veces redirigía a `/auth`.
-
-#### Backend (`FastAPI`)
-- No se han realizado cambios en el código del backend. El enfoque ha sido alinear el frontend con la API ya existente.

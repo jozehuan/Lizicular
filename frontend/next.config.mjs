@@ -1,3 +1,9 @@
+import createNextIntlPlugin from 'next-intl/plugin';
+
+const withNextIntl = createNextIntlPlugin(
+  './i18n.ts' // Ruta a tu archivo de configuración
+);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -10,10 +16,10 @@ const nextConfig = {
     return [
       {
         source: "/api/backend/:path*",
-        destination: "http://localhost:8000/:path*",
+        destination: `${process.env.BACKEND_URL || "http://localhost:8000"}/:path*`,
       },
     ]
   },
 }
 
-export default nextConfig
+export default withNextIntl(nextConfig);

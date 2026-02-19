@@ -1,0 +1,254 @@
+{
+  "AuthForm": {
+    "login": "Login",
+    "signup": "Sign Up",
+    "loginTitle": "Sign in with your email",
+    "signupTitle": "Create an account",
+    "emailLabel": "Email address",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "passwordPlaceholderSignup": "Create a password (min 8 characters)",
+    "nameLabel": "Full name",
+    "namePlaceholder": "John Doe",
+    "signInButton": "Sign in",
+    "signingInButton": "Signing in...",
+    "createAccountButton": "Create account",
+    "creatingAccountButton": "Creating account...",
+    "errors": {
+      "loginFailed": "Login failed",
+      "signupFailed": "Signup failed",
+      "unexpected": "An unexpected error occurred"
+    },
+    "validation": {
+      "nameRequired": "Full name is required.",
+      "emailInvalid": "Please enter a valid email address.",
+      "passwordMin": "Password must be at least 8 characters.",
+      "passwordRequired": "Password is required."
+    }
+  },
+  "Dashboard": {
+    "title": "Your Spaces",
+    "subtitle": "Manage your workspaces and tenders",
+    "createSpace": "New space",
+    "deleteDialogTitle": "Are you absolutely sure?",
+    "deleteDialogDescription": "This action cannot be undone. This will permanently delete your workspace and all associated data.",
+    "deleteDialogCancel": "Cancel",
+    "deleteDialogConfirm": "Delete",
+    "retry": "Retry",
+    "errors": {
+      "fetchSpaces": "Failed to fetch spaces",
+      "fetchSpacesUnexpected": "An unknown error occurred while fetching spaces",
+      "createSpace": "Failed to create space",
+      "createSpaceUnexpected": "An unknown error occurred while creating space",
+      "deleteSpace": "Failed to delete space",
+      "deleteSpaceUnexpected": "An unknown error occurred during deletion"
+    }
+  },
+  "SpacesList": {
+    "noSpacesTitle": "No spaces yet",
+    "noSpacesSubtitle": "Create your first space to get started",
+    "tendersLabel": "Tenders",
+    "createdDate": "Created {date}",
+    "tendersCount": "{count, plural, one {# tender} other {# tenders}}",
+    "noTendersInSpace": "No tenders in this space yet"
+  },
+  "CreateSpaceForm": {
+    "title": "New space",
+    "description": "Give your new workspace a name and an optional description.",
+    "nameLabel": "Workspace name",
+    "namePlaceholder": "e.g., Q3 Marketing Tenders",
+    "descriptionLabel": "Description (Optional)",
+    "descriptionPlaceholder": "A brief description of this workspace...",
+    "collaboratorsLabel": "Add collaborators (Optional)",
+    "collaboratorEmailPlaceholder": "colleague@example.com",
+    "addCollaborator": "Add",
+    "submit": "Create space",
+    "submitting": "Creating...",
+    "cancel": "Cancel"
+  },
+  "Header": {
+    "greeting": "Hello, {name}!",
+    "signOut": "Sign out"
+  },
+  "HomePage": {
+    "featuresTitle": "Everything you need to manage tenders efficiently",
+    "docManagementTitle": "Document Management",
+    "docManagementDescription": "Upload and organize tender documents with ease. Support for PDF and common file formats.",
+    "collaborationTitle": "Team Collaboration",
+    "collaborationDescription": "Invite collaborators to your workspaces and work together seamlessly on tenders.",
+    "analysisTitle": "Analysis & Insights",
+    "analysisDescription": "Get automated analysis of your tender documents with actionable insights.",
+    "automationTitle": "AI-Powered Automation",
+    "automationDescription": "Let AI extract key information and generate summaries from your documents.",
+    "footerPrivacy": "Privacy",
+    "footerTerms": "Terms",
+    "footerRights": "All rights reserved."
+  },
+  "SpaceDetailPage": {
+    "homeBreadcrumb": "Home",
+    "createdOn": "Created on {date}",
+    "membersTitle": "Members ({count})",
+    "addCollaboratorButton": "Add collaborator",
+    "addCollaboratorEmailPlaceholder": "Collaborator email",
+    "addCollaboratorRolePlaceholder": "Select role",
+    "addCollaboratorAddButton": "Add",
+    "addCollaboratorCancelButton": "Cancel",
+    "tendersTitle": "Tenders",
+    "newTenderButton": "New tender",
+    "noTendersTitle": "No tenders yet",
+    "noTendersSubtitle": "Create your first tender to get started",
+    "documentsCount": "{count, plural, one {# document} other {# documents}}",
+    "viewAnalysisResults": "View analysis results",
+    "noDocumentsUploaded": "No documents uploaded yet",
+    "uploadedDocuments": "Uploaded documents",
+    "workspaceNotFound": "Workspace not found.",
+    "retry": "Retry",
+    "errors": {
+      "fetchWorkspace": "Failed to fetch workspace details",
+      "fetchMembers": "Failed to fetch workspace members",
+      "fetchTenders": "Failed to fetch tenders",
+      "unexpected": "An unknown error occurred while fetching space data",
+      "updateWorkspace": "Failed to update workspace name",
+      "updateWorkspaceUnexpected": "An error occurred while updating workspace name",
+      "createTender": "Failed to create tender",
+      "createTenderUnexpected": "An unknown error occurred while creating tender",
+      "modifyMember": "Failed to modify member",
+      "modifyMemberUnexpected": "An error occurred while modifying member role",
+      "addCollaborator": "Failed to add collaborator",
+      "addCollaboratorUnexpected": "An error occurred while adding collaborator",
+      "deleteTender": "Failed to delete tender",
+      "deleteTenderUnexpected": "An error occurred while deleting the tender",
+      "missingToken": "Authentication token is missing. Please log in again.",
+      "downloadFailed": "Failed to download document",
+      "downloadUnexpected": "An error occurred during document download."
+    }
+  },
+  "Roles": {
+    "OWNER": "Owner",
+    "ADMIN": "Admin",
+    "EDITOR": "Editor",
+    "VIEWER": "Viewer",
+    "NONE": "None"
+  },
+  "Status": {
+    "pending": "Pending",
+    "processing": "Processing",
+    "completed": "Completed",
+    "failed": "Failed"
+  },
+  "NewTenderDialog": {
+    "title": "New tender",
+    "description": "Add a new tender to this workspace with its documents",
+    "nameLabel": "Tender name",
+    "namePlaceholder": "Enter tender name...",
+    "documentsLabel": "Documents",
+    "dragAndDrop": "Drag and drop PDF files here",
+    "orBrowse": "or click to browse from your computer",
+    "selectedFiles": "Selected files ({count})",
+    "cancelButton": "Cancel",
+    "submitButton": "Create tender",
+    "submittingButton": "Creating..."
+  },
+  "DeleteTenderDialog": {
+    "title": "Are you sure you want to delete this tender?",
+    "description": "This action cannot be undone. This will permanently delete the tender and all its associated documents and analysis results.",
+    "cancelButton": "Cancel",
+    "confirmButton": "Delete"
+  },
+  "TenderAnalysisPage": {
+    "breadcrumbs": {
+      "home": "Home"
+    },
+    "createdOn": "Created {date}",
+    "attachedFiles": "Attached files",
+    "addFilesButton": "Add files",
+    "noFiles": "No files uploaded",
+    "analysisCount": "{count, plural, one {# analysis result} other {# analysis results}}",
+    "fileCount": "{count, plural, one {# file} other {# files}}",
+    "analysisResultsTitle": "Analysis results",
+    "generateAnalysisButton": "Generate analysis",
+    "goToDashboard": "Go to dashboard",
+    "addFilesDialog": {
+      "title": "Add more files",
+      "description": "Upload additional PDF documents to this tender.",
+      "dragAndDrop": "Drag and drop PDF files here",
+      "orBrowse": "or click to browse from your computer",
+      "selectedFiles": "Selected files ({count})",
+      "cancelButton": "Cancel",
+      "uploadButton": "Upload files",
+      "uploadingButton": "Uploading..."
+    },
+    "generateAnalysisDialog": {
+      "title": "Generate new analysis",
+      "description": "Select an automation and provide a name for this analysis run.",
+      "nameLabel": "Name",
+      "namePlaceholder": "Optional, e.g., 'Initial Price Check'",
+      "automationLabel": "Automation",
+      "automationPlaceholder": "Select an automation",
+      "cancelButton": "Cancel",
+      "generateButton": "Generate"
+    },
+    "deleteAnalysisDialog": {
+      "title": "Are you absolutely sure?",
+      "description": "This action cannot be undone. This will permanently delete this analysis result.",
+      "cancelButton": "Cancel",
+      "deleteButton": "Delete"
+    },
+    "errors": {
+      "fetchTender": "Failed to fetch tender.",
+      "fetchWorkspace": "Failed to fetch workspace.",
+      "fetchAutomations": "Failed to fetch automations.",
+      "unexpected": "An unexpected error occurred.",
+      "updateTenderName": "Failed to update tender name.",
+      "selectAutomation": "Please select an automation.",
+      "generateAnalysis": "Failed to start analysis generation.",
+      "deleteAnalysis": "Failed to delete analysis result.",
+      "noFilesSelected": "No files selected for upload.",
+      "noAuth": "Authentication token missing.",
+      "uploadFailed": "Failed to upload files.",
+      "uploadError": "An error occurred during file upload.",
+      "removeDocument": "Failed to remove document.",
+      "removeDocumentError": "An error occurred during document removal.",
+      "fetchTenderTitle": "Error fetching tender"
+    },
+    "notFound": {
+      "title": "Tender not found",
+      "message": "The requested tender could not be found."
+    }
+  },
+  "AnalysisDisplay": {
+    "noAnalysis": {
+      "title": "No analysis available",
+      "description": "There are no analysis results to display for this tender yet."
+    },
+    "created": "Created",
+    "noErrorDetails": "No error details provided.",
+    "elementsCount": "{count, plural, one {# element} other {# elements}}",
+    "status": {
+      "processing": "Analysis in progress, please wait...",
+      "failed": "Analysis failed",
+      "pending": "Analysis is pending and will start soon."
+    }
+  },
+  "ChatbotWidget": {
+    "typing": "Lizi is typing...",
+    "waiting": "Waiting for response...",
+    "placeholder": "Type your message...",
+    "sendAria": "Send message",
+    "deleteAria": "Delete chat",
+    "openAria": "Open chat",
+    "closeAria": "Close chat"
+  },
+  "AnalysisResultPage": {
+    "title": "Analysis result",
+    "tenderLabel": "Tender: {name}",
+    "createdLabel": "Created: {date}",
+    "backButton": "Back to tender",
+    "noData": "No data to display.",
+    "errors": {
+      "fetchResult": "Failed to fetch analysis result",
+      "goBack": "Go back"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-
+import { useTranslations } from "next-intl"
 import { useState, type KeyboardEvent } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -24,6 +24,7 @@ interface CreateSpaceFormProps {
 }
 
 export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: CreateSpaceFormProps) {
+  const t = useTranslations("CreateSpaceForm");
   const [spaceName, setSpaceName] = useState("")
   const [spaceDescription, setSpaceDescription] = useState("")
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
@@ -68,10 +69,10 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
             </div>
             )}
           <div className="space-y-2">
-            <Label htmlFor="space-name" className="text-foreground">Space Name</Label>
+            <Label htmlFor="space-name" className="text-foreground">{t('nameLabel')}</Label>
             <Input
               id="space-name"
-              placeholder="Enter space name"
+              placeholder={t('namePlaceholder')}
               value={spaceName}
               onChange={(e) => setSpaceName(e.target.value)}
               className="h-11 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
@@ -80,10 +81,10 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="space-description" className="text-foreground">Space Description (Optional)</Label>
+            <Label htmlFor="space-description" className="text-foreground">{t('descriptionLabel')}</Label>
             <Input
               id="space-description"
-              placeholder="Enter a brief description for the space"
+              placeholder={t('descriptionPlaceholder')}
               value={spaceDescription}
               onChange={(e) => setSpaceDescription(e.target.value)}
               maxLength={100}
@@ -93,12 +94,12 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
           </div>
 
           <div className="space-y-4">
-            <Label className="text-foreground block">Collaborators</Label>
+            <Label className="text-foreground block">{t('collaboratorsLabel')}</Label>
             {collaborators.map((collaborator, index) => (
               <div key={index} className="flex items-center gap-2">
                 <Input
                   type="email"
-                  placeholder="Collaborator Email"
+                  placeholder={t('collaboratorEmailPlaceholder')}
                   value={collaborator.email}
                   onChange={(e) => handleCollaboratorEmailChange(index, e.target.value)}
                   className="flex-1 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
@@ -139,7 +140,7 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
               disabled={isSubmitting}
               className="mt-2 rounded-xl border-border text-foreground hover:bg-muted"
             >
-              <Plus className="mr-2 h-4 w-4" /> Add Collaborator
+              <Plus className="mr-2 h-4 w-4" /> {t('addCollaborator')}
             </Button>
           </div>
 
@@ -152,10 +153,10 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  {t('submitting')}
                 </>
               ) : (
-                "Save Space"
+                t('submit')
               )}
             </Button>
             <Button
@@ -165,7 +166,7 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
               disabled={isSubmitting} // Disable when submitting
               className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent"
             >
-              Cancel
+              {t('cancel')}
             </Button>
           </div>
         </form>

@@ -1,14 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useParams } from "next/navigation"
+import { useEffect, useState, use } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Loader2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
+import { useTranslations } from "next-intl"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -176,10 +175,10 @@ const AnalysisDataRenderer = ({ data }: { data: any }) => {
 };
 
 
-export default function AnalysisResultPage() {
+export default function AnalysisResultPage({ params: paramsPromise }: { params: Promise<{ spaceId: string, tenderId: string, analysisId: string }> }) {
+  const t = useTranslations("AnalysisResultPage");
   const { accessToken } = useAuth();
-  const params = useParams();
-  const { spaceId, tenderId, analysisId } = params;
+  const { spaceId, tenderId, analysisId } = use(paramsPromise);
 
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [tenderName, setTenderName] = useState<string>('');
@@ -201,7 +200,7 @@ export default function AnalysisResultPage() {
 
         if (!analysisResponse.ok) {
           const errorData = await analysisResponse.json();
-          throw new Error(errorData.detail || "Failed to fetch analysis result");
+          throw new Error(errorData.detail || t('errors.fetchResult'));
         }
         const analysisData = await analysisResponse.json();
         setAnalysisResult(analysisData); // This is the data for the renderer
@@ -221,7 +220,7 @@ export default function AnalysisResultPage() {
             setAnalysisName(finalName);
           }
         } else {
-            setAnalysisName(analysisData.name || 'Analysis Result');
+            setAnalysisName(analysisData.name || t('title'));
         }
       } catch (err: any) {
         setError(err.message);
@@ -231,7 +230,7 @@ export default function AnalysisResultPage() {
     };
 
     fetchAllData();
-  }, [accessToken, analysisId]);
+  }, [accessToken, analysisId, t]);
 
   if (loading) {
     return (
@@ -249,8 +248,8 @@ export default function AnalysisResultPage() {
           {error}
         </div>
         <Link href={`/space/${spaceId}/tender/${tenderId}`}>
-          <Button variant="outline" className="mt-4">
-            Go Back to Tender
+          <Button variant="default" className="mt-4">
+            {t('errors.goBack')}
           </Button>
         </Link>
       </main>
@@ -262,24 +261,24 @@ export default function AnalysisResultPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">
-            {analysisName || 'Analysis Result'}
+            {analysisName || t('title')}
           </h1>
           {analysisResult && (
             <>
               {tenderName && (
                 <p className="text-sm text-muted-foreground mt-2">
-                  Tender: {tenderName}
+                  {t('tenderLabel', { name: tenderName })}
                 </p>
               )}
               <p className="text-sm text-muted-foreground">
-                Created: {new Date(analysisResult.created_at).toLocaleString()}
+                {t('createdLabel', { date: new Date(analysisResult.created_at).toLocaleString() })}
               </p>
             </>
           )}
         </div>
         <Link href={`/space/${spaceId}/tender/${tenderId}`}>
-            <Button variant="outline">
-                Back to Tender
+            <Button variant="default">
+                {t('backButton')}
             </Button>
         </Link>
       </div>
@@ -287,7 +286,7 @@ export default function AnalysisResultPage() {
         {analysisResult ? (
           <AnalysisDataRenderer data={analysisResult} />
         ) : (
-          <p>No data to display.</p>
+          <p>{t('noData')}</p>
         )}
       </div>
     </main>

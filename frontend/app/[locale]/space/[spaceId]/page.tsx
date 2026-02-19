@@ -1,7 +1,8 @@
 "use client"
 
 import React from "react"
-import { useState, useEffect, useCallback, useRef, use } from "react" // Use useEffect and useCallback
+import { useTranslations } from "next-intl"
+import { useState, useEffect, useCallback, useRef, use } from "react"
 import Link from "next/link"
 import { format } from "date-fns"
 import { DashboardFooter } from "@/components/dashboard/footer"
@@ -25,7 +26,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -36,8 +36,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { FileText, Upload, X, Plus, Calendar, Users, FolderOpen, Loader2, AlertCircle, Trash2 } from "lucide-react" // Add Loader2, AlertCircle, Trash2
-import { useAuth } from "@/lib/auth-context" // Import useAuth
+import { FileText, Upload, X, Plus, Users, FolderOpen, Loader2, AlertCircle, Trash2 } from "lucide-react"
+import { useAuth } from "@/lib/auth-context"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,7 +47,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog" // Import AlertDialog components
+} from "@/components/ui/alert-dialog"
+import { getStatusBadgeClasses } from "@/lib/style-utils"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
@@ -68,35 +69,34 @@ const HexagonIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
-// Updated interfaces to match backend
 export interface FrontendTenderDocument {
   id: string;
   filename: string;
   content_type: string;
   size: number;
-  // Add other fields from backend TenderDocument if needed for display
 }
 
-export interface Tender { // Aligned with backend's Tender schema
+export interface Tender {
   id: string
-  name: string // Use 'name' instead of 'title'
+  name: string
   description?: string
   workspace_id: string
-  status: string // Backend status is string, not fixed enum
-  documents?: FrontendTenderDocument[] // Changed from files to documents
+  status: string
+  documents?: FrontendTenderDocument[]
+  analysis_results?: { status: string }[]
   created_at: string
   updated_at: string
 }
 
-export interface Member { // Aligned with WorkspaceMemberResponse
-  id: string // User's ID
-  name: string // User's full_name
+export interface Member {
+  id: string
+  name: string
   email: string
-  role: string // WorkspaceRole is string
-  avatar?: string // Frontend specific
+  role: string
+  avatar?: string
 }
 
-export interface WorkspaceData { // Aligned with WorkspaceResponse
+export interface WorkspaceData {
   id: string
   name: string
   description: string
@@ -106,32 +106,8 @@ export interface WorkspaceData { // Aligned with WorkspaceResponse
   updated_at: string
 }
 
-// Remove mock spacesData
-
-function getStatusColor(status: string) {
-  switch (status) {
-    case "draft":
-      return "bg-muted text-muted-foreground"
-    case "in-progress":
-      return "bg-secondary text-secondary-foreground"
-    case "analyzed":
-      return "bg-accent text-accent-foreground"
-    case "completed":
-      return "bg-primary text-primary-foreground"
-    default:
-      return "bg-muted text-muted-foreground"
-  }
-}
-
-function formatStatus(status: string) {
-  return status
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ")
-}
-
 function getRoleColor(role: string) {
-  switch (role.toLowerCase()) { // Use toLowerCase to match backend enum
+  switch (role.toLowerCase()) {
     case "owner":
       return "bg-primary text-primary-foreground"
     case "admin":
@@ -148,12 +124,12 @@ function getRoleColor(role: string) {
 function getInitials(name: string) {
   return name
     .split(" ")
+    .filter(Boolean)
     .map((n) => n[0])
     .join("")
     .toUpperCase()
     .slice(0, 2)
 }
-
 const formatFileSize = (bytes: number) => {
   if (bytes < 1024) return bytes + " B"
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
@@ -164,12 +140,13 @@ interface NewTenderDialogProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (tenderName: string, files: File[], spaceId: string) => Promise<void>
-  spaceId: string // Pass spaceId
+  spaceId: string
   isSubmitting: boolean
   error: string | null
 }
 
-function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, error }: NewTenderDialogProps) { // Receive spaceId
+function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, error }: NewTenderDialogProps) {
+  const t = useTranslations("NewTenderDialog");
   const [tenderName, setTenderName] = useState("")
   const [files, setFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
@@ -207,30 +184,23 @@ function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, err
 
   const handleSubmit = () => {
     if (tenderName.trim()) {
-      onSubmit(tenderName, files, spaceId) // Pass spaceId to onSubmit
+      onSubmit(tenderName, files, spaceId)
       setTenderName("")
       setFiles([])
-      // onClose() // Do not close immediately, let parent handle it based on submission success
     }
-  }
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + " B"
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB"
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="rounded-xl border-border bg-card max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-foreground">Create New Tender</DialogTitle>
+          <DialogTitle className="text-foreground">{t('title')}</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Add a new tender to this workspace with its documents
+            {t('description')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-6 pt-4">
-            {error && ( // Display error message if present
+            {error && (
             <div className="flex items-center gap-2 p-3 rounded-xl bg-destructive/10 text-destructive text-sm">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
                 {error}
@@ -238,20 +208,20 @@ function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, err
             )}
           <div className="space-y-2">
             <Label htmlFor="tender-name" className="text-foreground">
-              Tender Name
+              {t('nameLabel')}
             </Label>
             <Input
               id="tender-name"
               value={tenderName}
               onChange={(e) => setTenderName(e.target.value)}
-              placeholder="Enter tender name..."
+              placeholder={t('namePlaceholder')}
               className="h-11 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
               disabled={isSubmitting}
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-foreground">Documents</Label>
+            <Label className="text-foreground">{t('documentsLabel')}</Label>
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -269,10 +239,10 @@ function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, err
             >
               <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
               <p className="text-foreground font-medium">
-                Drag and drop PDF files here
+                {t('dragAndDrop')}
               </p>
               <p className="text-sm text-muted-foreground mt-1">
-                or click to browse from your computer
+                {t('orBrowse')}
               </p>
               <input
                 ref={fileInputRef}
@@ -289,7 +259,7 @@ function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, err
           {files.length > 0 && (
             <div className="space-y-2">
               <Label className="text-foreground">
-                Selected Files ({files.length})
+                {t('selectedFiles', {count: files.length})}
               </Label>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {files.map((file, index) => (
@@ -332,7 +302,7 @@ function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, err
               disabled={isSubmitting}
               className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent"
             >
-              Cancel
+              {t('cancelButton')}
             </Button>
             <Button
               onClick={handleSubmit}
@@ -342,10 +312,10 @@ function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, err
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
+                  {t('submittingButton')}
                 </>
               ) : (
-                "Create Tender"
+                t('submitButton')
               )}
             </Button>
           </div>
@@ -358,10 +328,14 @@ function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, err
 export default function SpaceDetailPage({
   params,
 }: {
-  params: Promise<{ spaceId: string }> // Changed back to Promise
+  params: Promise<{ spaceId: string }>
 }) {
-  const { spaceId } = use(params) // Unwrap params with use()
-  const { user, accessToken, isLoading: isAuthLoading } = useAuth() // Get the user object
+  const { spaceId } = use(params)
+  const t = useTranslations("SpaceDetailPage");
+  const tDelete = useTranslations("DeleteTenderDialog");
+  const tRoles = useTranslations("Roles"); // Added for roles
+  const tStatus = useTranslations("Status"); // Added for status
+  const { user, accessToken, isLoading: isAuthLoading } = useAuth()
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null)
   const [members, setMembers] = useState<Member[]>([])
   const [tenders, setTenders] = useState<Tender[]>([])
@@ -370,21 +344,21 @@ export default function SpaceDetailPage({
   const [isNewTenderOpen, setIsNewTenderOpen] = useState(false)
   const [isCreatingTender, setIsCreatingTender] = useState(false)
   const [createTenderError, setCreateTenderError] = useState<string | null>(null)
-  const [showDeleteTenderConfirm, setShowDeleteTenderConfirm] = useState(false) // State for tender delete confirmation dialog
-  const [tenderToDeleteId, setTenderToDeleteId] = useState<string | null>(null) // State to store ID of tender to delete
+  const [showDeleteTenderConfirm, setShowDeleteTenderConfirm] = useState(false)
+  const [tenderToDeleteId, setTenderToDeleteId] = useState<string | null>(null)
 
-  const [isEditingWorkspaceName, setIsEditingWorkspaceName] = useState(false); // State for inline editing of workspace name
-  const [newWorkspaceName, setNewWorkspaceName] = useState(workspace?.name || ""); // Holds the new name during editing
+  const [isEditingWorkspaceName, setIsEditingWorkspaceName] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState(workspace?.name || "");
 
-  const [showNewCollaboratorForm, setShowNewCollaboratorForm] = useState(false); // State to show/hide new collaborator form
-  const [newCollaboratorEmail, setNewCollaboratorEmail] = useState(""); // Email for new collaborator
-  const [newCollaboratorRole, setNewCollaboratorRole] = useState("VIEWER"); // Role for new collaborator
+  const [showNewCollaboratorForm, setShowNewCollaboratorForm] = useState(false);
+  const [newCollaboratorEmail, setNewCollaboratorEmail] = useState("");
+  const [newCollaboratorRole, setNewCollaboratorRole] = useState("VIEWER");
+  const [addCollaboratorError, setAddCollaboratorError] = useState<string | null>(null);
 
-  // Derived state to check if current user is owner or admin
   const currentUserIsOwner = members.find(m => m.id === user?.id)?.role === "OWNER";
   const currentUserIsAdmin = members.find(m => m.id === user?.id)?.role === "ADMIN";
   const canEditWorkspaceName = currentUserIsOwner || currentUserIsAdmin;
-  const canAddRemoveCollaborators = currentUserIsOwner || currentUserIsAdmin; // Simplified for now, can be refined
+  const canAddRemoveCollaborators = currentUserIsOwner || currentUserIsAdmin;
 
   useEffect(() => {
     if (workspace?.name) {
@@ -404,7 +378,6 @@ export default function SpaceDetailPage({
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch Workspace Details
       const workspaceResponse = await fetch(`${BACKEND_URL}/workspaces/${spaceId}`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -413,12 +386,11 @@ export default function SpaceDetailPage({
 
       if (!workspaceResponse.ok) {
         const errorData = await workspaceResponse.json();
-        throw new Error(errorData.detail || "Failed to fetch workspace details");
+        throw new Error(errorData.detail || t('errors.fetchWorkspace'));
       }
       const workspaceData: WorkspaceData = await workspaceResponse.json();
       setWorkspace(workspaceData);
 
-      // Fetch Members
       const membersResponse = await fetch(`${BACKEND_URL}/workspaces/${spaceId}/members`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -427,7 +399,7 @@ export default function SpaceDetailPage({
 
       if (!membersResponse.ok) {
         const errorData = await membersResponse.json();
-        throw new Error(errorData.detail || "Failed to fetch workspace members");
+        throw new Error(errorData.detail || t('errors.fetchMembers'));
       }
       const membersData: {user_id: string, email: string, full_name: string, role: string}[] = await membersResponse.json();
       const mappedMembers = membersData.map(m => ({
@@ -438,7 +410,6 @@ export default function SpaceDetailPage({
       }));
       setMembers(mappedMembers);
 
-      // Fetch Tenders
       const tendersResponse = await fetch(`${BACKEND_URL}/tenders/workspace/${spaceId}`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -447,17 +418,17 @@ export default function SpaceDetailPage({
 
       if (!tendersResponse.ok) {
         const errorData = await tendersResponse.json();
-        throw new Error(errorData.detail || "Failed to fetch tenders");
+        throw new Error(errorData.detail || t('errors.fetchTenders'));
       }
       const tendersData: Tender[] = await tendersResponse.json();
       setTenders(tendersData);
 
     } catch (err: any) {
-      setError(err.message || "An unknown error occurred while fetching space data");
+      setError(err.message || t('errors.unexpected'));
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, isAuthLoading, spaceId]);
+  }, [accessToken, isAuthLoading, spaceId, t]);
 
   useEffect(() => {
     fetchSpaceData();
@@ -466,7 +437,7 @@ export default function SpaceDetailPage({
   const handleUpdateWorkspaceName = async () => {
     if (!workspace || !newWorkspaceName.trim() || newWorkspaceName === workspace.name) {
       setIsEditingWorkspaceName(false);
-      setNewWorkspaceName(workspace?.name || ""); // Revert to original if no change or invalid
+      setNewWorkspaceName(workspace?.name || "");
       return;
     }
 
@@ -482,51 +453,47 @@ export default function SpaceDetailPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to update workspace name");
+        throw new Error(errorData.detail || t('errors.updateWorkspace'));
       }
 
-      await fetchSpaceData(); // Refresh all data to reflect new name and ensure consistency
+      await fetchSpaceData();
       setIsEditingWorkspaceName(false);
     } catch (err: any) {
-      setError(err.message || "An error occurred while updating workspace name");
-      setNewWorkspaceName(workspace?.name || ""); // Revert on error
+      setError(err.message || t('errors.updateWorkspaceUnexpected'));
+      setNewWorkspaceName(workspace?.name || "");
       setIsEditingWorkspaceName(false);
     }
   };
 
-  const handleCreateTender = async (name: string, files: File[], currentSpaceId: string) => { // Updated to async and receive spaceId
+  const handleCreateTender = async (name: string, files: File[], currentSpaceId: string) => {
     setIsCreatingTender(true);
     setCreateTenderError(null);
     try {
-        // Prepare form data for file upload
         const formData = new FormData();
         formData.append("name", name);
         formData.append("workspace_id", currentSpaceId);
-        // Assuming backend expects files individually
         files.forEach((file) => {
-            formData.append("files", file); // Backend expects 'files' field for file uploads
+            formData.append("files", file);
         });
 
         const createTenderResponse = await fetch(`${BACKEND_URL}/tenders/`, {
             method: "POST",
             headers: {
                 Authorization: `Bearer ${accessToken}`,
-                // Do NOT set Content-Type header here; FormData sets it automatically with the correct boundary
             },
             body: formData,
         });
 
         if (!createTenderResponse.ok) {
             const errorData = await createTenderResponse.json();
-            throw new Error(errorData.detail || "Failed to create tender");
+            throw new Error(errorData.detail || t('errors.createTender'));
         }
 
-        // After successful creation, re-fetch tenders to update the list
         await fetchSpaceData();
-        setIsNewTenderOpen(false); // Close dialog on success
+        setIsNewTenderOpen(false);
 
     } catch (err: any) {
-        setCreateTenderError(err.message || "An unknown error occurred while creating tender");
+        setCreateTenderError(err.message || t('errors.createTenderUnexpected'));
     } finally {
         setIsCreatingTender(false);
     }
@@ -536,7 +503,6 @@ export default function SpaceDetailPage({
     try {
       let response;
       if (newRole === "NONE") {
-        // Remove member
         response = await fetch(`${BACKEND_URL}/workspaces/${workspaceId}/members/${memberId}`, {
           method: "DELETE",
           headers: {
@@ -544,8 +510,7 @@ export default function SpaceDetailPage({
           },
         });
       } else {
-        // Update role
-        response = await fetch(`${BACKEND_URL}/workspaces/${workspaceId}/members/${memberId}`, {
+        response = await fetch(`${BACKEND_URL}/workspaces/${workspace.id}/members/${memberId}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -557,13 +522,12 @@ export default function SpaceDetailPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to modify member");
+        throw new Error(errorData.detail || t('errors.modifyMember'));
       }
 
-      // Re-fetch all space data to update members and potentially currentMemberRole
       await fetchSpaceData();
     } catch (err: any) {
-      setError(err.message || "An error occurred while modifying member role");
+      setError(err.message || t('errors.modifyMemberUnexpected'));
     }
   };
 
@@ -571,6 +535,7 @@ export default function SpaceDetailPage({
     if (!workspace || !newCollaboratorEmail.trim()) {
       return;
     }
+    setAddCollaboratorError(null);
 
     try {
       const response = await fetch(`${BACKEND_URL}/workspaces/${workspace.id}/members`, {
@@ -584,25 +549,15 @@ export default function SpaceDetailPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to add collaborator");
+        throw new Error(errorData.detail || t('errors.addCollaborator'));
       }
-      // Handle the case where the user was omitted (status 200 with message)
-      if (response.status === 200) {
-        const text = await response.text();
-        if (text.includes("not found")) {
-          // Display a temporary message to the user that the collaborator was not found
-          setError(`Collaborator with email ${newCollaboratorEmail} not found and was omitted.`);
-          setTimeout(() => setError(null), 5000); // Clear message after 5 seconds
-        }
-      }
-
-
-      await fetchSpaceData(); // Refresh all data to update members
+      
+      await fetchSpaceData();
       setShowNewCollaboratorForm(false);
       setNewCollaboratorEmail("");
       setNewCollaboratorRole("VIEWER");
     } catch (err: any) {
-      setError(err.message || "An error occurred while adding collaborator");
+      setAddCollaboratorError(err.message || t('errors.addCollaboratorUnexpected'));
     }
   };
 
@@ -629,20 +584,20 @@ export default function SpaceDetailPage({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to delete tender");
+        throw new Error(errorData.detail || t('errors.deleteTender'));
       }
 
-      await fetchSpaceData(); // Refresh the list of tenders
-      handleCancelDeleteTender(); // Close dialog and clear ID
+      await fetchSpaceData();
+      handleCancelDeleteTender();
     } catch (err: any) {
-      setError(err.message || "An error occurred while deleting the tender");
-      handleCancelDeleteTender(); // Close dialog anyway
+      setError(err.message || t('errors.deleteTenderUnexpected'));
+      handleCancelDeleteTender();
     }
   };
 
   const handleDownloadDocument = async (tenderId: string, documentId: string, filename: string) => {
     if (!accessToken) {
-      setError("Authentication token is missing. Please log in again.");
+      setError(t('errors.missingToken'));
       return;
     }
 
@@ -656,10 +611,9 @@ export default function SpaceDetailPage({
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Failed to download document: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(t('errors.downloadFailed'));
       }
 
-      // Get the content-disposition header to find the actual filename, if provided by backend
       const contentDisposition = response.headers.get("Content-Disposition");
       let downloadFilename = filename;
       if (contentDisposition) {
@@ -679,7 +633,7 @@ export default function SpaceDetailPage({
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      setError(err.message || "An error occurred during document download.");
+      setError(err.message || t('errors.downloadUnexpected'));
     }
   };
 
@@ -699,17 +653,16 @@ export default function SpaceDetailPage({
               {error}
         </div>
         <Button onClick={() => window.location.reload()} className="mt-4">
-            Retry
+            {t('retry')}
         </Button>
       </main>
     )
   }
   
-  // Ensure workspace is not null before rendering its properties
   if (!workspace) {
     return (
         <main className="min-h-screen flex items-center justify-center bg-background p-6">
-            <p className="text-muted-foreground">Workspace not found.</p>
+            <p className="text-muted-foreground">{t('workspaceNotFound')}</p>
         </main>
     );
   }
@@ -725,7 +678,7 @@ export default function SpaceDetailPage({
                 href="/dashboard"
                 className="text-muted-foreground hover:text-foreground"
               >
-                Home
+                {t('homeBreadcrumb')}
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -741,8 +694,8 @@ export default function SpaceDetailPage({
         <Card className="border-border rounded-xl bg-card mb-8">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-4">
-              <HexagonIcon className="h-8 w-8 text-primary" fill="currentColor" /> {/* Larger HexagonIcon */}
-              <div>
+              <HexagonIcon className="h-8 w-8 text-primary" fill="currentColor" />
+              <div className="flex-grow">
                 {isEditingWorkspaceName && canEditWorkspaceName ? (
                   <Input
                     value={newWorkspaceName}
@@ -766,7 +719,7 @@ export default function SpaceDetailPage({
                   >
                     {workspace.name}
                     <span className="text-sm text-muted-foreground font-normal ml-auto">
-                      Created on {format(new Date(workspace.created_at), "MMMM d, yyyy")}
+                      {t('createdOn', {date: format(new Date(workspace.created_at), "MMMM d, yyyy")})}
                     </span>
                   </CardTitle>
                 )}
@@ -785,27 +738,20 @@ export default function SpaceDetailPage({
               <div className="flex items-center gap-2 text-foreground">
                 <Users className="h-4 w-4" />
                 <span className="font-medium">
-                  Members ({members.length})
+                  {t('membersTitle', {count: members.length})}
                 </span>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 {members.map((member) => {
-                  // Determine if current user is owner or admin of this workspace
-                  const currentUserIsOwner = members.find(m => m.id === user?.id)?.role === "OWNER";
-                  const currentUserIsAdmin = members.find(m => m.id === user?.id)?.role === "ADMIN";
-                  
-                  // Determine if the role can be edited by the current user
                   let canEditRole = false;
                   if (currentUserIsOwner) {
-                    canEditRole = true; // Owner can edit anyone
+                    canEditRole = true;
                   } else if (currentUserIsAdmin) {
-                    // Admin can edit non-owner/non-admin members
                     if (member.role !== "OWNER" && member.role !== "ADMIN") {
                       canEditRole = true;
                     }
                   }
 
-                  // Determine if the role selector should be visible (i.e., user is OWNER or ADMIN)
                   const canSeeRoleSelector = currentUserIsOwner || currentUserIsAdmin;
 
                   return (
@@ -826,32 +772,32 @@ export default function SpaceDetailPage({
                           {member.email}
                         </p>
                       </div>
-                      {member.role === "OWNER" ? ( // OWNER role is always plain text, unchangeable via selector
+                      {member.role === "OWNER" ? (
                         <Badge
                           className={`rounded-lg text-xs capitalize ${getRoleColor(member.role)}`}
                         >
-                          {member.role}
+                          {tRoles(member.role as "OWNER" | "ADMIN" | "EDITOR" | "VIEWER" | "NONE")}
                         </Badge>
                       ) : canSeeRoleSelector ? (
                         <Select
                           value={member.role}
                           onValueChange={(newRole) => handleUpdateMemberRole(workspace.id, member.id, newRole)}
-                          disabled={!canEditRole || isAuthLoading} // Disable if no permission or loading
+                          disabled={!canEditRole || isAuthLoading}
                         >
                                                   <SelectTrigger className="w-[120px] rounded-lg text-xs">
-                                                    <SelectValue>{member.role}</SelectValue>
+                                                    <SelectValue>{tRoles(member.role as "OWNER" | "ADMIN" | "EDITOR" | "VIEWER" | "NONE")}</SelectValue>
                                                   </SelectTrigger>
                                                   <SelectContent>
-                                                    <SelectItem value="ADMIN">ADMIN</SelectItem>
-                                                    <SelectItem value="EDITOR">EDITOR</SelectItem>
-                                                    <SelectItem value="VIEWER">VIEWER</SelectItem>
-                                                    <SelectItem value="NONE">NONE</SelectItem> {/* Added NONE option */}
+                                                    <SelectItem value="ADMIN">{tRoles('ADMIN')}</SelectItem>
+                                                    <SelectItem value="EDITOR">{tRoles('EDITOR')}</SelectItem>
+                                                    <SelectItem value="VIEWER">{tRoles('VIEWER')}</SelectItem>
+                                                    <SelectItem value="NONE">{tRoles('NONE')}</SelectItem>
                                                   </SelectContent>                        </Select>
                       ) : (
                         <Badge
                           className={`rounded-lg text-xs capitalize ${getRoleColor(member.role)}`}
                         >
-                          {member.role}
+                          {tRoles(member.role as "OWNER" | "ADMIN" | "EDITOR" | "VIEWER" | "NONE")}
                         </Badge>
                       )}
                     </div>
@@ -866,13 +812,13 @@ export default function SpaceDetailPage({
                       onClick={() => setShowNewCollaboratorForm(true)}
                       className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent w-full"
                     >
-                      <Plus className="mr-2 h-4 w-4" /> Add Collaborator
+                      <Plus className="mr-2 h-4 w-4" /> {t('addCollaboratorButton')}
                     </Button>
                   ) : (
                     <div className="flex flex-col gap-3 p-3 rounded-xl border border-border bg-muted/30">
                       <Input
                         type="email"
-                        placeholder="Collaborator Email"
+                        placeholder={t('addCollaboratorEmailPlaceholder')}
                         value={newCollaboratorEmail}
                         onChange={(e) => setNewCollaboratorEmail(e.target.value)}
                         className="h-9 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
@@ -882,12 +828,12 @@ export default function SpaceDetailPage({
                         onValueChange={(value) => setNewCollaboratorRole(value)}
                       >
                         <SelectTrigger className="w-full rounded-xl border-border bg-background text-foreground">
-                          <SelectValue placeholder="Select Role" />
+                          <SelectValue placeholder={t('addCollaboratorRolePlaceholder')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="ADMIN">ADMIN</SelectItem>
-                          <SelectItem value="EDITOR">EDITOR</SelectItem>
-                          <SelectItem value="VIEWER">VIEWER</SelectItem>
+                          <SelectItem value="ADMIN">{tRoles('ADMIN')}</SelectItem>
+                          <SelectItem value="EDITOR">{tRoles('EDITOR')}</SelectItem>
+                          <SelectItem value="VIEWER">{tRoles('VIEWER')}</SelectItem>
                         </SelectContent>
                       </Select>
                       <div className="flex gap-2">
@@ -896,7 +842,7 @@ export default function SpaceDetailPage({
                           disabled={!newCollaboratorEmail.trim() || isAuthLoading}
                           className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 flex-1"
                         >
-                          Add
+                          {t('addCollaboratorAddButton')}
                         </Button>
                         <Button
                           variant="outline"
@@ -904,12 +850,18 @@ export default function SpaceDetailPage({
                             setShowNewCollaboratorForm(false);
                             setNewCollaboratorEmail("");
                             setNewCollaboratorRole("VIEWER");
+                            setAddCollaboratorError(null);
                           }}
                           className="rounded-xl border-border text-foreground hover:bg-muted bg-transparent flex-1"
                         >
-                          Cancel
+                          {t('addCollaboratorCancelButton')}
                         </Button>
                       </div>
+                      {addCollaboratorError && (
+                        <p className="text-sm text-destructive mt-2 px-1">
+                          {addCollaboratorError}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -922,14 +874,14 @@ export default function SpaceDetailPage({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-foreground">
-              Tenders
+              {t('tendersTitle')}
             </h2>
             <Button
               onClick={() => {setIsNewTenderOpen(true); setCreateTenderError(null);}}
               className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <Plus className="mr-2 h-4 w-4" />
-              New Tender
+              {t('newTenderButton')}
             </Button>
           </div>
 
@@ -937,96 +889,99 @@ export default function SpaceDetailPage({
             <Card className="border-border rounded-xl bg-card">
               <CardContent className="py-16 text-center">
                 <FolderOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <p className="text-lg text-muted-foreground">No tenders yet</p>
+                <p className="text-lg text-muted-foreground">{t('noTendersTitle')}</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Create your first tender to get started
+                  {t('noTendersSubtitle')}
                 </p>
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-3">
-              {tenders.map((tender) => (
-                <div key={tender.id} className="flex items-start gap-2"> {/* Wrapper for Accordion and Delete button */}
-                  <Accordion type="single" collapsible className="flex-1">
-                    <AccordionItem
-                      value={tender.id}
-                      className="group border border-border rounded-xl bg-card px-0 overflow-hidden"
+              {tenders.map((tender) => {
+                const hasAnalysis = tender.analysis_results && tender.analysis_results.length > 0;
+                const finalStatus = hasAnalysis
+                  ? tender.analysis_results![tender.analysis_results!.length - 1].status
+                  : null;
+                const statusKey = finalStatus?.toLowerCase(); // Get the raw status key
+
+                return (
+                  <div key={tender.id} className="flex items-start gap-2">
+                    <Accordion type="single" collapsible className="flex-1">
+                      <AccordionItem
+                        value={tender.id}
+                        className="group border border-border rounded-xl bg-card px-0 overflow-hidden shadow-sm"
+                      >
+                        <AccordionTrigger className="flex-1 text-left px-6 py-5 hover:no-underline hover:bg-muted/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-border">
+                                                  <div className="flex items-center justify-between w-full">
+                                                    <div className="flex flex-col items-start text-left">
+                                                      <Link 
+                                                        href={`/space/${spaceId}/tender/${tender.id}`}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="text-lg font-medium text-foreground hover:underline"
+                                                      >
+                                                        {tender.name}
+                                                      </Link>
+                                                      <span className="text-sm text-muted-foreground mt-1">
+                                                        {t('createdOn', {date: format(new Date(tender.created_at), "MMMM d, yyyy")})} &middot;{" "}
+                                                        {t('documentsCount', {count: tender.documents?.length || 0})}
+                                                      </span>
+                                                    </div>
+                                                    {finalStatus && (
+                                                      <Badge
+                                                        className={`rounded-lg ml-4 ${getStatusBadgeClasses(finalStatus)}`}
+                                                      >
+                                                        {tStatus(statusKey) || finalStatus.toUpperCase()}
+                                                      </Badge>
+                                                    )}
+                                                  </div>
+                                                </AccordionTrigger>
+                                                <AccordionContent className="px-6 pb-5 pt-4">
+                                                  {(tender.documents?.length || 0) === 0 ? (
+                                                    <p className="text-muted-foreground text-sm py-4 text-center">
+                                                      {t('noDocumentsUploaded')}
+                                                    </p>
+                                                  ) : (
+                                                    <div className="space-y-2">
+                                                      <p className="text-sm font-medium text-muted-foreground mb-3">
+                                                        {t('uploadedDocuments')}
+                                                      </p>
+                                                      {tender.documents?.map((doc) => (
+                                                        <div
+                                                          key={doc.id}
+                                                          className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 cursor-pointer"
+                                                          onClick={() => handleDownloadDocument(tender.id, doc.id, doc.filename)}
+                                                        >
+                                                          <div className="flex items-center gap-3">
+                                                            <FileText className="h-5 w-5 text-red-500" />
+                                                            <span className="text-sm text-foreground">
+                                                              {doc.filename}
+                                                            </span>
+                                                          </div>
+                                                          <span className="text-xs text-muted-foreground">
+                                                            {formatFileSize(doc.size)}
+                                                          </span>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </AccordionContent>                      </AccordionItem>
+                    </Accordion>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeleteTenderClick(tender.id)}
+                      className={`
+                        shrink-0 text-muted-foreground hover:text-destructive mt-5
+                        ${(currentMemberRole === "OWNER" || currentMemberRole === "ADMIN") 
+                          ? "visible" 
+                          : "invisible pointer-events-none"}
+                      `}
                     >
-                      <AccordionTrigger className="flex-1 text-left px-6 py-5 hover:no-underline hover:bg-muted/50 [&[data-state=open]]:border-b [&[data-state=open]]:border-border">
-                        <div className="flex items-center justify-between w-full">
-                          <div className="flex flex-col items-start text-left">
-                            <span className="text-lg font-medium text-foreground">
-                              {tender.name}
-                            </span>
-                            <span className="text-sm text-muted-foreground mt-1">
-                              Created {format(new Date(tender.created_at), "MMM d, yyyy")} &middot;{" "}
-                              {tender.documents?.length || 0} document
-                              {(tender.documents?.length || 0) !== 1 ? "s" : ""}
-                            </span>
-                          </div>
-                          <Badge
-                            className={`rounded-lg ml-4 ${getStatusColor(tender.status)}`}
-                          >
-                            {formatStatus(tender.status)}
-                          </Badge>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="px-6 pb-5 pt-4">
-                        {(tender.documents?.length || 0) === 0 ? (
-                          <p className="text-muted-foreground text-sm py-4 text-center">
-                            No documents uploaded yet
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium text-muted-foreground mb-3">
-                              Uploaded Documents
-                            </p>
-                            {tender.documents?.map((doc) => (
-                              <div
-                                key={doc.id}
-                                className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/30 hover:bg-muted/50 cursor-pointer"
-                                onClick={() => handleDownloadDocument(tender.id, doc.id, doc.filename)}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <FileText className="h-5 w-5 text-red-500" />
-                                  <span className="text-sm text-foreground">
-                                    {doc.filename}
-                                  </span>
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  {formatFileSize(doc.size)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="mt-4 pt-4 border-t border-border">
-                          <Link
-                            href={`/space/${spaceId}/tender/${tender.id}`}
-                            className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
-                          >
-                            View Analysis Results
-                            <span aria-hidden="true">&rarr;</span>
-                          </Link>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDeleteTenderClick(tender.id)}
-                    className={`
-                      shrink-0 text-muted-foreground hover:text-destructive mt-5
-                      ${(currentMemberRole === "OWNER" || currentMemberRole === "ADMIN") 
-                        ? "visible" 
-                        : "invisible pointer-events-none"}
-                    `}
-                  >
-                    <Trash2 className="h-5 w-5" />
-                  </Button>
-                </div>
-              ))}
+                      <Trash2 className="h-5 w-5" />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>          )}
         </div>
       </main>
@@ -1035,7 +990,7 @@ export default function SpaceDetailPage({
         isOpen={isNewTenderOpen}
         onClose={() => setIsNewTenderOpen(false)}
         onSubmit={handleCreateTender}
-        spaceId={spaceId} // Pass spaceId
+        spaceId={spaceId}
         isSubmitting={isCreatingTender}
         error={createTenderError}
       />
@@ -1047,16 +1002,15 @@ export default function SpaceDetailPage({
       <AlertDialog open={showDeleteTenderConfirm} onOpenChange={setShowDeleteTenderConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure you want to delete this tender?</AlertDialogTitle>
+            <AlertDialogTitle>{tDelete('title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the
-              tender and all its associated documents and analysis results.
+              {tDelete('description')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCancelDeleteTender}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={handleCancelDeleteTender}>{tDelete('cancelButton')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmDeleteTender} className="bg-destructive hover:bg-destructive/90">
-              Delete
+              {tDelete('confirmButton')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1065,4 +1019,3 @@ export default function SpaceDetailPage({
     </ProtectedRoute>
   )
 }
-

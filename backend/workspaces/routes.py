@@ -11,7 +11,8 @@ from backend.workspaces.models import Workspace, WorkspaceMember, WorkspaceRole
 from backend.workspaces.schemas import (
     WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate,
     WorkspaceMemberAdd, WorkspaceMemberUpdate, WorkspaceMemberResponse,
-    WorkspaceWithTendersResponse, TenderSummaryResponse, WorkspaceDetailResponse
+    WorkspaceWithTendersResponse, TenderSummaryResponse, WorkspaceDetailResponse,
+    AnalysisResultSummary
 )
 from backend.auth.database import get_db
 from backend.auth.auth_utils import get_current_active_user, get_user_by_email
@@ -150,7 +151,16 @@ async def get_user_workspaces_with_tenders(
             updated_at=workspace.updated_at,
             user_role=member.role.value,
             tenders=[
-                TenderSummaryResponse(id=str(t.id), name=t.name, created_at=t.created_at, workspace_id=workspace.id, workspace_name=workspace.name)
+                TenderSummaryResponse(
+                    id=str(t.id),
+                    name=t.name,
+                    created_at=t.created_at,
+                    workspace_id=workspace.id,
+                    workspace_name=workspace.name,
+                    analysis_results=[
+                        AnalysisResultSummary(status=ar.status) for ar in t.analysis_results
+                    ] if t.analysis_results else []
+                )
                 for t in tenders_from_mongo
             ],
             members=workspace_members_response
