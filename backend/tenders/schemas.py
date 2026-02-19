@@ -381,6 +381,11 @@ class AnalysisResultSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AnalysisResultUpdate(BaseModel):
+    """Schema for updating an analysis result's name."""
+    name: str = Field(..., min_length=1, max_length=255, description="The new name for the analysis.")
+
+
 
 # ============================================================================
 # TENDER SCHEMAS (Documento principal de MongoDB)

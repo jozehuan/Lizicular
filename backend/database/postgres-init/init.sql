@@ -109,9 +109,9 @@ CREATE TABLE IF NOT EXISTS autos (
 -- Nota: La columna owner_id es NOT NULL, por lo que necesitamos un usuario existente.
 -- Insertamos un usuario por defecto si no existe.
 INSERT INTO users (id, email, hashed_password, full_name, is_active)
-VALUES ('00000000-0000-0000-0000-000000000001', 'default_owner@example.com', 'hashed_password_placeholder', 'Default Owner', TRUE)
+VALUES ('00000000-0000-0000-0000-000000000001', 'lizicular@nazaries.com', 'passwordpassword', 'LIZICULAR OWNER', TRUE)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO autos (id, url, name, description, owner_id)
-VALUES ('2cf9e384-b633-5c8c-9488-2f47b6796791', 'https://n8n.staging.nazaries.cloud/webhook-test/7dda4f32-7721-405b-aa6d-8e84ded163ce', 'Default Automation', 'This is a default automation for testing purposes.', '00000000-0000-0000-0000-000000000001')
+VALUES ('2cf9e384-b633-5c8c-9488-2f47b6796791', 'https://n8n.staging.nazaries.cloud/webhook-test/7dda4f32-7721-405b-aa6d-8e84ded163ce', 'Ticketing Tender Automation', 'This is a default automation for testing purposes.', '00000000-0000-0000-0000-000000000001')
 ON CONFLICT (id) DO NOTHING;

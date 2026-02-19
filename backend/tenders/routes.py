@@ -23,13 +23,14 @@ from backend.workspaces.models import Workspace, WorkspaceRole, WorkspaceMember
 from backend.tenders.schemas import (
     Tender, TenderCreate, TenderUpdate, AnalysisResult, 
     GenerateAnalysisRequest, GenerateAnalysisResponse, AnalysisStatus,
-    AnalysisResultSummary
+    AnalysisResultSummary, AnalysisResultUpdate
 )
 from backend.tenders.tenders_utils import (
     create_tender, get_tender_by_id, get_tenders_by_workspace,
     update_tender, delete_tender, add_analysis_result_to_tender,
     delete_analysis_result, delete_document, add_documents_to_existing_tender,
-    create_placeholder_analysis, update_analysis_result, get_analysis_by_id,
+    create_placeholder_analysis, update_analysis_result, get_analysis_by_id, get_tender_by_analysis_id,
+    update_analysis_name,
     get_all_tenders_for_user, get_mongo_db, MongoDB, check_for_existing_analysis
 )
 from backend.automations.models import Automation
@@ -443,51 +444,83 @@ async def run_analysis_in_background(
 ):
     await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.PROCESSING)
     
+    # Fetch the analysis to get its name
+    analysis_placeholder = await get_analysis_by_id(MongoDB.database, tender_id, analysis_id)
+    if not analysis_placeholder:
+        error_message = f"Could not find analysis placeholder with ID {analysis_id} to start background task."
+        print(error_message)
+        await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+        return
+
     async with httpx.AsyncClient() as client:
         try:
+            # 1. Call the external automation service, now including the analysis name
             response = await client.post(
                 automation_url,
-                json={"tender_id": tender_id, "analysis_id": analysis_id},
+                json={
+                    "tender_id": tender_id,
+                    "analysis_id": analysis_id,
+                    "analysis_name": analysis_placeholder.name
+                },
                 timeout=900.0,
             )
             response.raise_for_status()
-
-            verified_analysis_doc = None
-            max_retries = 15
-            for _ in range(max_retries):
-                verified_analysis_doc = await MongoDB.database.analysis_results.find_one({"_id": analysis_id})
-                if verified_analysis_doc:
-                    break
-                await asyncio.sleep(2)
             
-            if not verified_analysis_doc:
-                raise Exception("Analysis result not found in database after successful automation run (30s timeout).")
+            analysis_data = response.json()
 
-            analysis_data = verified_analysis_doc.get("data")
-            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.COMPLETED, data=analysis_data)
+            # 2. After getting the result, check if the parent tender still exists
+            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
+            if not tender:
+                print(f"Tender for analysis_id {analysis_id} was deleted during processing. Aborting update.")
+                await manager_instance.send_to_analysis_id({"status": "ABORTED", "error": "Tender was deleted."}, analysis_id)
+                return
+
+            # 3. If tender exists, proceed with the update
+            await update_analysis_result(
+                MongoDB.database, 
+                tender.id,
+                analysis_id, 
+                status=AnalysisStatus.COMPLETED, 
+                data=analysis_data
+            )
             
+            # 4. Log the successful event
             async for db in get_db():
                 await log_tender_event(
                     db=db,
                     action=AuditAction.TENDER_ANALYZE,
-                    tender_id=tender_id,
-                    workspace_id=uuid.UUID(workspace_id),
+                    tender_id=tender.id,
+                    workspace_id=uuid.UUID(tender.workspace_id),
                     user_id=uuid.UUID(user_id),
                     ip_address=client_ip,
                     details="Generated analysis with automation",
                     payload={"automation_id": automation_id}
                 )
+
         except (httpx.HTTPStatusError, httpx.RequestError) as e:
             error_message = f"Error from automation service: {e}"
-            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
-            await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
+            if tender:
+                await update_analysis_result(MongoDB.database, tender.id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
+                await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+            else:
+                print(f"Tender for analysis_id {analysis_id} was deleted. Skipping error update.")
+
         except Exception as e:
             error_message = f"An unexpected error occurred in background task: {e}"
-            await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
-            await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
+            if tender:
+                await update_analysis_result(MongoDB.database, tender.id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
+                await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
+            else:
+                print(f"Tender for analysis_id {analysis_id} was deleted. Skipping error update.")
         else:
-            analysis_result = await get_analysis_by_id(MongoDB.database, tender_id, analysis_id)
-            await manager_instance.send_to_analysis_id({"status": "COMPLETED", "result": analysis_result.model_dump()}, analysis_id)
+            # 5. If everything was successful, notify the client via WebSocket
+            analysis_result = await get_analysis_by_id(MongoDB.database, tender.id, analysis_id)
+            if analysis_result:
+                 await manager_instance.send_to_analysis_id({"status": "COMPLETED", "result": analysis_result.model_dump()}, analysis_id)
+            else:
+                 await manager_instance.send_to_analysis_id({"status": "FAILED", "error": "Could not retrieve final analysis."}, analysis_id)
 
 @router.post("/{tender_id}/generate_analysis", status_code=status.HTTP_202_ACCEPTED, response_model=GenerateAnalysisResponse, tags=["Analysis"])
 async def api_generate_analysis(
@@ -585,25 +618,74 @@ async def api_get_all_analysis_results_for_user(
     
     return list(found_analysis_results.values())
 
-@analysis_router.get("/{analysis_id}")
+@analysis_router.get("/{analysis_id}", response_model=AnalysisResult)
 async def get_single_analysis_result(
     analysis_id: str,
     db: AsyncSession = Depends(get_db),
     mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    tender = await mongo_db.tenders.find_one({"analysis_results.id": analysis_id})
+    """
+    Gets a single, complete analysis result object by its ID.
+    This now correctly reads from the embedded document within a tender.
+    """
+    # 1. Find the parent tender which contains the analysis result
+    tender = await get_tender_by_analysis_id(mongo_db, analysis_id)
     if not tender:
-        raise HTTPException(status_code=404, detail="No tender associated with this analysis result found")
+        raise HTTPException(status_code=404, detail="Analysis result not found or not associated with any tender")
 
-    if not await check_workspace_permission(tender["workspace_id"], current_user.id, db, WorkspaceRole.VIEWER):
-        raise HTTPException(status_code=403, detail="Access denied to this analysis result")
+    # 2. Check user has permission to view the workspace
+    if not await check_workspace_permission(tender.workspace_id, current_user.id, db, WorkspaceRole.VIEWER):
+        raise HTTPException(status_code=403, detail="Access denied to this analysis result's workspace")
 
-    analysis_doc = await mongo_db.analysis_results.find_one({"_id": analysis_id})
-    if not analysis_doc:
-        raise HTTPException(status_code=404, detail="Analysis result not found in its collection")
+    # 3. Retrieve the specific analysis result from the tender
+    analysis_result = await get_analysis_by_id(mongo_db, tender.id, analysis_id)
+    if not analysis_result:
+        # This should be rare if the previous check passed, but handles inconsistency
+        raise HTTPException(status_code=404, detail="Analysis result not found within the tender")
 
-    if "_id" in analysis_doc:
-        analysis_doc["_id"] = str(analysis_doc["_id"])
-    
-    return JSONResponse(content=analysis_doc)
+    return analysis_result
+
+
+@analysis_router.patch("/{analysis_id}", response_model=AnalysisResult)
+async def api_update_analysis_name(
+    analysis_id: str,
+    update_data: AnalysisResultUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
+    current_user: Any = Depends(get_current_active_user)
+):
+    """Updates the name of a specific analysis result."""
+    # 1. Find the parent tender to check for permissions
+    tender = await get_tender_by_analysis_id(mongo_db, analysis_id)
+    if not tender:
+        raise HTTPException(status_code=404, detail="Analysis result not found or not associated with any tender")
+
+    # 2. Check if the user has permission in the workspace
+    if not await check_workspace_permission(tender.workspace_id, current_user.id, db, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Permission denied (Editor role required)")
+
+    # 3. Perform the update
+    success = await update_analysis_name(mongo_db, analysis_id, update_data.name)
+    if not success:
+        raise HTTPException(status_code=404, detail="Analysis result could not be updated in the tender document.")
+
+    # 4. Create an audit log for the change
+    await create_audit_log(
+        db,
+        category=AuditCategory.TENDER,
+        action=AuditAction.TENDER_UPDATE,
+        user_id=current_user.id,
+        workspace_id=uuid.UUID(tender.workspace_id),
+        payload={"updated_analysis": analysis_id, "new_name": update_data.name},
+        ip_address=request.client.host if request.client else "unknown"
+    )
+
+    # 5. Return the updated analysis object
+    updated_analysis = await get_analysis_by_id(mongo_db, tender.id, analysis_id)
+    if not updated_analysis:
+        # This case should be rare if the update succeeded, but it's good practice
+        raise HTTPException(status_code=404, detail="Could not retrieve updated analysis result.")
+        
+    return updated_analysis

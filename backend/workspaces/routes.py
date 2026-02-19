@@ -2,7 +2,7 @@ from typing import List, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 import uuid
 
@@ -244,13 +244,26 @@ async def delete_workspace(
     if not workspace or workspace.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not an owner of the workspace")
 
+    try:
+        # 1. Perform PostgreSQL deletions first
+        await db.execute(
+            delete(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id)
+        )
+        await db.delete(workspace)
+        await db.commit()
+
+    except Exception:
+        # If SQL fails, rollback and do not touch MongoDB
+        await db.rollback()
+        raise
+
+    # 2. Only after the SQL transaction is successful, perform the MongoDB deletion
     await delete_tenders_by_workspace(MongoDB.database, str(workspace.id))
-    await db.delete(workspace)
-    await db.commit()
     
+    # 3. Create the audit log after all operations are successful
     await create_audit_log(
         db, category=AuditCategory.WORKSPACE, action=AuditAction.WORKSPACE_DELETE,
-        user_id=current_user.id, workspace_id=workspace.id, ip_address=request.client.host if request.client else "unknown"
+        user_id=current_user.id, workspace_id=workspace_id, ip_address=request.client.host if request.client else "unknown"
     )
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
