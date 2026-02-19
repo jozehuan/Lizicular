@@ -87,43 +87,60 @@ const parseErrorMessage = (message?: string, defaultMessage?: string): string =>
   return detail.trim() || defaultMessage || "No detail provided.";
 };
 
-// Helper component to render the dynamic summary
+// Helper component to render a formatted, recursive summary of dynamic analysis data
 const DynamicSummary = ({ data }: { data: any }) => {
     const t = useTranslations("AnalysisDisplay");
+    const formatKey = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
-    const renderSummary = (obj: any, level = 0) => {
-        if (!obj || typeof obj !== 'object') {
-        return null;
+    // Main recursive rendering function for each node in the data tree
+    const renderSummaryNode = (nodeData: any, nodeKey: string) => {
+        // Do not render keys that have null value or are empty arrays
+        if (nodeData === null || (Array.isArray(nodeData) && nodeData.length === 0)) {
+            return null;
         }
 
-        const keys = Object.keys(obj).filter(
-        k => !['_id', 'tender_id', 'created_at'].includes(k)
-        );
+        const formattedKey = formatKey(nodeKey);
 
-        return (
-        <ul className={`space-y-1 ${level > 0 ? 'pl-4' : ''}`}>
-            {keys.map(key => {
-            const value = obj[key];
-            const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        // Case 1: The value is an array -> count its elements
+        if (Array.isArray(nodeData)) {
+            return <p>{formattedKey}: <span className="font-normal text-muted-foreground">{t('elementsCount', { count: nodeData.length })}</span></p>;
+        }
 
+        // Case 2: The value is a nested object -> recurse through its properties
+        if (typeof nodeData === 'object' && nodeData !== null) {
             return (
-                <li key={key} className="text-sm">
-                <span className="font-semibold">{formattedKey}:</span>
-                {Array.isArray(value) ? (
-                    <span className="ml-2">{t('elementsCount', { count: value.length })}</span>
-                ) : typeof value === 'object' && value !== null ? (
-                    renderSummary(value, level + 1)
-                ) : (
-                    <span className="ml-2">{String(value)}</span>
-                )}
-                </li>
+                <div className="mt-2">
+                    <p className="font-medium text-foreground">{formattedKey}:</p>
+                    <div className="pl-4 border-l-2 border-muted/30 ml-2 space-y-1 mt-1">
+                        {Object.entries(nodeData).map(([key, value]) => (
+                            <div key={key}>
+                                {renderSummaryNode(value, key)}
+                            </div>
+                        ))}
+                    </div>
+                </div>
             );
-            })}
-        </ul>
-        );
+        }
+
+        // Case 3: The value is a primitive (string, number, etc.) -> display it
+        return <p>{formattedKey}: <span className="font-normal text-muted-foreground">{String(nodeData)}</span></p>;
     };
 
-    return renderSummary(data);
+    // Filter out all possible metadata keys from the analysis result document
+    const metadataKeys = ['_id', 'tender_id', 'created_at', 'id', 'name', 'procedure_id', 'procedure_name', 'created_by', 'processing_time', 'status', 'error_message', 'data'];
+    const dataKeysToDisplay = Object.keys(data).filter(
+        key => !metadataKeys.includes(key)
+    );
+
+    return (
+        <div className="space-y-2 text-sm font-semibold text-foreground/90">
+            {dataKeysToDisplay.map(key => (
+                <div key={key}>
+                    {renderSummaryNode(data[key], key)}
+                </div>
+            ))}
+        </div>
+    );
 };
 
 export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }: AnalysisDisplayProps) {

@@ -116,7 +116,7 @@ const ExpandableTable = ({ value }: { value: any[] }) => {
 };
 
 const AnalysisDataRenderer = ({ data }: { data: any }) => {
-  const ignoredKeys = ['_id', 'tender_id', 'created_at', 'id'];
+  const ignoredKeys = ['_id', 'tender_id', 'created_at', 'id', 'name'];
   const topLevelKeys = Object.keys(data).filter(key => !ignoredKeys.includes(key));
   const defaultTab = topLevelKeys[0] || '';
 

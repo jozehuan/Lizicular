@@ -45,6 +45,11 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - **Postman:** Pruebas manuales y documentación de la API.
 - **Httpx:** Cliente HTTP para pruebas de integración de FastAPI.
 
+### **Base de Datos NoSQL (MongoDB)**
+- **`tenders`**: Colección central con metadatos de licitaciones y **resúmenes ligeros** de sus documentos y análisis (sin datos pesados).
+- **`tender_files`**: Almacena el contenido binario de los archivos subidos para mantener ágil la colección `tenders`.
+- **`analysis_results`**: **Fuente única de la verdad** para los resultados JSON detallados. Su estructura es **dinámica** y flexible, adaptándose a cualquier salida de los automatismos.
+
 ## 📂 Estructura del Proyecto
 
 - `backend/main.py`: Punto de entrada de la aplicación (orquesta los routers).
@@ -138,6 +143,7 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 10. **Modelos de Datos Extensibles:** Los esquemas de Pydantic para los resultados de análisis se han actualizado para soportar estructuras de datos más complejas y anidadas, incluyendo un nuevo JSON `estimacion`.
 11. **Arquitectura de Chatbot:** Se ha implementado la base para un agente de IA conversacional, con un sistema de agentes-herramienta, autenticación de usuario y registro de auditoría.
 12. **Robustez y Estabilidad del Backend:** Se han implementado mejoras significativas en la seguridad de las operaciones. La eliminación de workspaces ahora sigue un patrón transaccional para evitar datos huérfanos entre bases de datos. Además, las tareas asíncronas de análisis son ahora resilientes a condiciones de carrera, cancelándose de forma segura si la licitación asociada se elimina durante el procesamiento.
+13. **Optimización de Interfaz y Carga (Frontend):** Se ha refinado la experiencia de usuario en la página de licitaciones. El sistema ahora realiza refrescos silenciosos en segundo plano al volver a la pestaña, sin interrumpir con pantallas de carga globales. Además, la obtención de resultados de análisis se ha hecho secuencial y exhaustiva, garantizando la carga completa de datos detallados desde la colección de MongoDB para todos los análisis finalizados.
 
 ---
 **Desarrollado para la automatización eficiente de licitaciones.**

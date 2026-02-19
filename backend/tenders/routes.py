@@ -442,19 +442,21 @@ async def run_analysis_in_background(
     client_ip: str | None,
     manager_instance: ConnectionManager,
 ):
+    # 1. Update the embedded summary to "PROCESSING"
     await update_analysis_result(MongoDB.database, tender_id, analysis_id, status=AnalysisStatus.PROCESSING)
     
-    # Fetch the analysis to get its name
+    # 2. Fetch placeholder to get the name for the webhook payload
     analysis_placeholder = await get_analysis_by_id(MongoDB.database, tender_id, analysis_id)
     if not analysis_placeholder:
-        error_message = f"Could not find analysis placeholder with ID {analysis_id} to start background task."
+        error_message = f"FATAL: Could not find analysis placeholder with ID {analysis_id} to start background task. Aborting."
         print(error_message)
         await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
         return
 
-    async with httpx.AsyncClient() as client:
-        try:
-            # 1. Call the external automation service, now including the analysis name
+    # 3. Trigger the external automation (n8n) and exit.
+    # The n8n automation is responsible for updating the result in the database.
+    try:
+        async with httpx.AsyncClient() as client:
             response = await client.post(
                 automation_url,
                 json={
@@ -462,65 +464,25 @@ async def run_analysis_in_background(
                     "analysis_id": analysis_id,
                     "analysis_name": analysis_placeholder.name
                 },
-                timeout=900.0,
+                timeout=30.0, # A reasonable timeout to ensure the request is sent.
             )
-            response.raise_for_status()
-            
-            analysis_data = response.json()
+            response.raise_for_status() 
+            print(f"Successfully triggered automation for analysis_id: {analysis_id}")
 
-            # 2. After getting the result, check if the parent tender still exists
-            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
-            if not tender:
-                print(f"Tender for analysis_id {analysis_id} was deleted during processing. Aborting update.")
-                await manager_instance.send_to_analysis_id({"status": "ABORTED", "error": "Tender was deleted."}, analysis_id)
-                return
-
-            # 3. If tender exists, proceed with the update
-            await update_analysis_result(
-                MongoDB.database, 
-                tender.id,
-                analysis_id, 
-                status=AnalysisStatus.COMPLETED, 
-                data=analysis_data
-            )
-            
-            # 4. Log the successful event
-            async for db in get_db():
-                await log_tender_event(
-                    db=db,
-                    action=AuditAction.TENDER_ANALYZE,
-                    tender_id=tender.id,
-                    workspace_id=uuid.UUID(tender.workspace_id),
-                    user_id=uuid.UUID(user_id),
-                    ip_address=client_ip,
-                    details="Generated analysis with automation",
-                    payload={"automation_id": automation_id}
-                )
-
-        except (httpx.HTTPStatusError, httpx.RequestError) as e:
-            error_message = f"Error from automation service: {e}"
-            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
-            if tender:
-                await update_analysis_result(MongoDB.database, tender.id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
-                await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
-            else:
-                print(f"Tender for analysis_id {analysis_id} was deleted. Skipping error update.")
-
-        except Exception as e:
-            error_message = f"An unexpected error occurred in background task: {e}"
-            tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
-            if tender:
-                await update_analysis_result(MongoDB.database, tender.id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
-                await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
-            else:
-                print(f"Tender for analysis_id {analysis_id} was deleted. Skipping error update.")
+    except (httpx.HTTPStatusError, httpx.RequestError) as e:
+        # If the call to n8n fails immediately, update the status to FAILED and notify the user.
+        error_message = f"Failed to trigger automation webhook: {e}"
+        print(f"ERROR: {error_message}")
+        tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
+        if tender:
+            await update_analysis_result(MongoDB.database, tender.id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
+            await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
         else:
-            # 5. If everything was successful, notify the client via WebSocket
-            analysis_result = await get_analysis_by_id(MongoDB.database, tender.id, analysis_id)
-            if analysis_result:
-                 await manager_instance.send_to_analysis_id({"status": "COMPLETED", "result": analysis_result.model_dump()}, analysis_id)
-            else:
-                 await manager_instance.send_to_analysis_id({"status": "FAILED", "error": "Could not retrieve final analysis."}, analysis_id)
+            # This case is for the race condition where the tender is deleted while we attempt to trigger the webhook.
+            print(f"Tender for analysis_id {analysis_id} was deleted. Skipping webhook failure update.")
+    
+    # This function's job is now complete. n8n will handle the rest.
+
 
 @router.post("/{tender_id}/generate_analysis", status_code=status.HTTP_202_ACCEPTED, response_model=GenerateAnalysisResponse, tags=["Analysis"])
 async def api_generate_analysis(
@@ -618,33 +580,28 @@ async def api_get_all_analysis_results_for_user(
     
     return list(found_analysis_results.values())
 
-@analysis_router.get("/{analysis_id}", response_model=AnalysisResult)
+@analysis_router.get("/{analysis_id}")
 async def get_single_analysis_result(
     analysis_id: str,
     db: AsyncSession = Depends(get_db),
     mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    """
-    Gets a single, complete analysis result object by its ID.
-    This now correctly reads from the embedded document within a tender.
-    """
-    # 1. Find the parent tender which contains the analysis result
-    tender = await get_tender_by_analysis_id(mongo_db, analysis_id)
+    tender = await mongo_db.tenders.find_one({"analysis_results.id": analysis_id})
     if not tender:
-        raise HTTPException(status_code=404, detail="Analysis result not found or not associated with any tender")
+        raise HTTPException(status_code=404, detail="No tender associated with this analysis result found")
 
-    # 2. Check user has permission to view the workspace
-    if not await check_workspace_permission(tender.workspace_id, current_user.id, db, WorkspaceRole.VIEWER):
-        raise HTTPException(status_code=403, detail="Access denied to this analysis result's workspace")
+    if not await check_workspace_permission(tender["workspace_id"], current_user.id, db, WorkspaceRole.VIEWER):
+        raise HTTPException(status_code=403, detail="Access denied to this analysis result")
 
-    # 3. Retrieve the specific analysis result from the tender
-    analysis_result = await get_analysis_by_id(mongo_db, tender.id, analysis_id)
-    if not analysis_result:
-        # This should be rare if the previous check passed, but handles inconsistency
-        raise HTTPException(status_code=404, detail="Analysis result not found within the tender")
+    analysis_doc = await mongo_db.analysis_results.find_one({"_id": analysis_id})
+    if not analysis_doc:
+        raise HTTPException(status_code=404, detail="Analysis result not found in its collection")
 
-    return analysis_result
+    if "_id" in analysis_doc:
+        analysis_doc["_id"] = str(analysis_doc["_id"])
+    
+    return JSONResponse(content=analysis_doc)
 
 
 @analysis_router.patch("/{analysis_id}", response_model=AnalysisResult)

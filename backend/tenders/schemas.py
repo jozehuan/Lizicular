@@ -347,8 +347,6 @@ class AnalysisResult(BaseModel):
     
     error_message: Optional[str] = None
     
-    data: AnalysisData | None = Field(None, description="Los 5 JSONs del análisis")
-    
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -359,14 +357,7 @@ class AnalysisResult(BaseModel):
                 "created_at": "2024-01-15T14:00:00Z",
                 "created_by": "user-uuid-789",
                 "processing_time": 12.5,
-                "status": "completed",
-                "data": {
-                    "informacion_general": [],
-                    "requisitos": [],
-                    "otros_requisitos": [],
-                    "criterios_no_matematicos": [],
-                    "criterios_matematicos": []
-                }
+                "status": "completed"
             }
         }
     )
