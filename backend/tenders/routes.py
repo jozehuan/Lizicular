@@ -618,28 +618,33 @@ async def api_get_all_analysis_results_for_user(
     
     return list(found_analysis_results.values())
 
-@analysis_router.get("/{analysis_id}")
+@analysis_router.get("/{analysis_id}", response_model=AnalysisResult)
 async def get_single_analysis_result(
     analysis_id: str,
     db: AsyncSession = Depends(get_db),
     mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db),
     current_user: Any = Depends(get_current_active_user)
 ):
-    tender = await mongo_db.tenders.find_one({"analysis_results.id": analysis_id})
+    """
+    Gets a single, complete analysis result object by its ID.
+    This now correctly reads from the embedded document within a tender.
+    """
+    # 1. Find the parent tender which contains the analysis result
+    tender = await get_tender_by_analysis_id(mongo_db, analysis_id)
     if not tender:
-        raise HTTPException(status_code=404, detail="No tender associated with this analysis result found")
+        raise HTTPException(status_code=404, detail="Analysis result not found or not associated with any tender")
 
-    if not await check_workspace_permission(tender["workspace_id"], current_user.id, db, WorkspaceRole.VIEWER):
-        raise HTTPException(status_code=403, detail="Access denied to this analysis result")
+    # 2. Check user has permission to view the workspace
+    if not await check_workspace_permission(tender.workspace_id, current_user.id, db, WorkspaceRole.VIEWER):
+        raise HTTPException(status_code=403, detail="Access denied to this analysis result's workspace")
 
-    analysis_doc = await mongo_db.analysis_results.find_one({"_id": analysis_id})
-    if not analysis_doc:
-        raise HTTPException(status_code=404, detail="Analysis result not found in its collection")
+    # 3. Retrieve the specific analysis result from the tender
+    analysis_result = await get_analysis_by_id(mongo_db, tender.id, analysis_id)
+    if not analysis_result:
+        # This should be rare if the previous check passed, but handles inconsistency
+        raise HTTPException(status_code=404, detail="Analysis result not found within the tender")
 
-    if "_id" in analysis_doc:
-        analysis_doc["_id"] = str(analysis_doc["_id"])
-    
-    return JSONResponse(content=analysis_doc)
+    return analysis_result
 
 
 @analysis_router.patch("/{analysis_id}", response_model=AnalysisResult)

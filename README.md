@@ -112,6 +112,7 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - `POST /tenders/{tender_id}/analysis`: Añade resultados de análisis a una licitación (Requiere rol EDITOR).
 - `POST /tenders/{tender_id}/generate_analysis`: Inicia la generación de un nuevo análisis de forma asíncrona (Requiere rol EDITOR).
 - `GET /analysis-results/{analysis_id}`: Obtiene el detalle de un resultado de análisis específico (usado por el chatbot).
+- `PATCH /analysis-results/{analysis_id}`: Renombra un resultado de análisis específico (Requiere rol EDITOR).
 - `DELETE /tenders/{tender_id}/analysis/{result_id}`: Elimina un análisis específico.
 
 ### **WebSockets**
@@ -136,6 +137,7 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 9.  **Gestión de Automatismos:** Se ha añadido una tabla `autos` en PostgreSQL y endpoints en `/automations` para registrar y gestionar los automatismos externos (ej. webhooks de n8n) que pueden ser invocados.
 10. **Modelos de Datos Extensibles:** Los esquemas de Pydantic para los resultados de análisis se han actualizado para soportar estructuras de datos más complejas y anidadas, incluyendo un nuevo JSON `estimacion`.
 11. **Arquitectura de Chatbot:** Se ha implementado la base para un agente de IA conversacional, con un sistema de agentes-herramienta, autenticación de usuario y registro de auditoría.
+12. **Robustez y Estabilidad del Backend:** Se han implementado mejoras significativas en la seguridad de las operaciones. La eliminación de workspaces ahora sigue un patrón transaccional para evitar datos huérfanos entre bases de datos. Además, las tareas asíncronas de análisis son ahora resilientes a condiciones de carrera, cancelándose de forma segura si la licitación asociada se elimina durante el procesamiento.
 
 ---
 **Desarrollado para la automatización eficiente de licitaciones.**
