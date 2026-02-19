@@ -244,21 +244,26 @@ async def delete_workspace(
     if not workspace or workspace.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not an owner of the workspace")
 
-    # Delete associated tenders and files from MongoDB
+    try:
+        # 1. Perform PostgreSQL deletions first
+        await db.execute(
+            delete(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id)
+        )
+        await db.delete(workspace)
+        await db.commit()
+
+    except Exception:
+        # If SQL fails, rollback and do not touch MongoDB
+        await db.rollback()
+        raise
+
+    # 2. Only after the SQL transaction is successful, perform the MongoDB deletion
     await delete_tenders_by_workspace(MongoDB.database, str(workspace.id))
     
-    # Delete all members associated with the workspace
-    await db.execute(
-        delete(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id)
-    )
-
-    # Now delete the workspace itself
-    await db.delete(workspace)
-    await db.commit()
-    
+    # 3. Create the audit log after all operations are successful
     await create_audit_log(
         db, category=AuditCategory.WORKSPACE, action=AuditAction.WORKSPACE_DELETE,
-        user_id=current_user.id, workspace_id=workspace.id, ip_address=request.client.host if request.client else "unknown"
+        user_id=current_user.id, workspace_id=workspace_id, ip_address=request.client.host if request.client else "unknown"
     )
     
     return Response(status_code=status.HTTP_204_NO_CONTENT)
