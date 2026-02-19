@@ -727,6 +727,40 @@ async def update_analysis_result(
     )
     return result.modified_count > 0
 
+
+async def update_analysis_name(
+    db: Any,
+    analysis_id: str,
+    new_name: str,
+) -> bool:
+    """
+    Updates the name of an analysis result in both the `tenders` collection (embedded)
+    and the separate `analysis_results` collection for consistency.
+
+    Args:
+        db: MongoDB database
+        analysis_id: The ID of the analysis result to update.
+        new_name: The new name for the analysis.
+
+    Returns:
+        True if the name was updated in the parent tender, False otherwise.
+    """
+    # 1. Update the name in the `tenders` collection (primary operation)
+    result_in_tender = await db.tenders.update_one(
+        {"analysis_results.id": analysis_id},
+        {"$set": {"analysis_results.$.name": new_name}}
+    )
+
+    # 2. Update the name in the separate `analysis_results` collection (secondary, for consistency)
+    # This is a "fire and forget" update. The primary success indicator is the
+    # update in the `tenders` collection.
+    await db.analysis_results.update_one(
+        {"_id": analysis_id},
+        {"$set": {"name": new_name}}
+    )
+    
+    return result_in_tender.modified_count > 0
+
 async def get_tender_by_analysis_id(
     db: Any,
     analysis_id: str
