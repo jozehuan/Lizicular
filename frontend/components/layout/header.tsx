@@ -6,9 +6,17 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { LogOut } from "lucide-react"
+import { LogOut, User } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { LanguageSwitcher } from "./language-switcher"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 export function Header() {
   const t = useTranslations("Header");
@@ -56,22 +64,46 @@ export function Header() {
             <span className="hidden sm:block text-lg font-sans">
               {t('greeting', {name: user.name})}
             </span>
-            <Avatar className="h-8 w-8 sm:h-10 sm:w-10 border border-border">
-              <AvatarImage src={user.picture || "/placeholder-user.jpg"} alt="User avatar" />
-              <AvatarFallback className="bg-secondary text-secondary-foreground text-sm">
-                {getInitials(user.name)}
-              </AvatarFallback>
-            </Avatar>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="focus:outline-none">
+                  <Avatar className="h-8 w-8 sm:h-10 sm:w-10 border border-border hover:opacity-80 transition-opacity cursor-pointer">
+                    <AvatarImage src={user.picture || "/placeholder-user.jpg"} alt="User avatar" />
+                    <AvatarFallback className="bg-secondary text-secondary-foreground text-sm">
+                      {getInitials(user.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{user.name}</p>
+                    <p className="text-xs leading-none text-muted-foreground">
+                      {user.email}
+                    </p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/profile" className="flex items-center gap-2 cursor-pointer w-full">
+                    <User className="h-4 w-4" />
+                    <span>{t('profile')}</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={handleLogout} 
+                  className="flex items-center gap-2 cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10"
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span>{t('signOut')}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <LanguageSwitcher />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleLogout}
-              aria-label={t('signOut')}
-              className="h-8 w-8 sm:h-10 sm:w-10"
-            >
-              <LogOut className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
-            </Button>
           </div>
         )}
       </div>

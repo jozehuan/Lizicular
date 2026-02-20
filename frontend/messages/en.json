@@ -69,6 +69,7 @@
   },
   "Header": {
     "greeting": "Hello, {name}!",
+    "profile": "Profile",
     "signOut": "Sign out"
   },
   "HomePage": {
@@ -232,7 +233,7 @@
     }
   },
   "ChatbotWidget": {
-    "typing": "Lizi is typing...",
+    "typing": "",
     "waiting": "Waiting for response...",
     "placeholder": "Type your message...",
     "sendAria": "Send message",
