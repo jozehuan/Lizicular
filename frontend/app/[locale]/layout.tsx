@@ -7,6 +7,7 @@ import { getMessages } from 'next-intl/server'
 import { AuthProvider } from '@/lib/auth-context'
 import { ChatbotProvider } from "@/lib/chatbot-context"
 import { Header } from '@/components/layout/header'
+import { Toaster } from "@/components/ui/sonner"
 import '../globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -42,6 +43,7 @@ export default async function RootLayout({
             <ChatbotProvider>
               <Header />
               {children}
+              <Toaster />
             </ChatbotProvider>
           </NextIntlClientProvider>
         </AuthProvider>

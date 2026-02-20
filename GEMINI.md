@@ -74,6 +74,7 @@ La persistencia de los datos de negocio se gestiona en MongoDB a través de tres
   - `/app`: Rutas de la aplicación y componentes principales.
     - `/[locale]`: Contiene todas las rutas internacionalizadas.
       - `/dashboard`: Página principal del usuario.
+      - `/profile`: Perfil de usuario y ajustes.
       - `/space/[spaceId]`: Vista detallada de un workspace.
       - `/space/[spaceId]/tender/[tenderId]`: Vista de una licitación y sus análisis.
     - `/api`: Rutas de API que actúan como Backend-for-Frontend (BFF).
@@ -115,6 +116,11 @@ El módulo de autenticación y seguridad es completamente funcional y ha sido ex
 16. **Consistencia y Optimización de Datos:** Se ha corregido una inconsistencia en la arquitectura de MongoDB. Los resúmenes de análisis dentro de `tenders` ya no contienen el campo pesado `data`. La fuente de la verdad para los resultados detallados es exclusivamente la colección `analysis_results`. Se han refactorizado los modelos Pydantic y la lógica de actualización para eliminar redundancias y optimizar el tamaño de los documentos.
 17. **Carga Secuencial y Exhaustiva (Frontend):** Se ha implementado un sistema de parcheo secuencial para los resultados de análisis en la página de detalles. Esto evita límites de conexión del navegador y garantiza que, tras cada refresco, se obtenga la información detallada de *todos* los análisis completados directamente desde su colección dedicada.
 18. **Refresco Silencioso y Eficiente:** El frontend ahora utiliza la API de visibilidad del navegador para realizar refrescos parciales y silenciosos de los análisis cuando el usuario vuelve a la pestaña. Esto mantiene la información actualizada sin interrumpir la experiencia del usuario con pantallas de carga globales.
+19. **Gestión de Perfil de Usuario:** Se ha implementado una página de perfil completa (`/profile`) que permite a los usuarios:
+    - **Personalización de Identidad:** Cambiar su avatar seleccionando entre una galería predefinida (por defecto se asigna `blue_lizard.png`).
+    - **Actualización de Datos:** Modificar su nombre completo (limitado a 30 caracteres). El email permanece protegido como identificador único.
+    - **Eliminación Segura de Cuenta:** Un flujo destructivo que elimina al usuario de PostgreSQL y realiza una limpieza exhaustiva de toda su información en propiedad (workspaces, licitaciones, archivos y análisis) en MongoDB antes de cerrar la sesión.
+20. **Restricciones de Longitud y Validación:** Se han aplicado límites de caracteres estrictos en todos los niveles (DB, Backend y Frontend) para asegurar la integridad de los datos y la coherencia de la interfaz.
 
 ## Arquitectura de Autenticación ("Gold Standard")
 
@@ -188,11 +194,28 @@ A partir de este momento, la aplicación tiene el `accessToken` en memoria para 
         *   Cuando el backend termina de procesar un análisis (ya sea con éxito o con error), envía un mensaje a través del WebSocket.
         *   Al recibir este mensaje, el frontend es notificado e **inicia de nuevo todo el proceso de recarga de datos** (vuelve al paso 1) para obtener la información más reciente y reflejar el nuevo estado del análisis.
 
-    En esencia, es un sistema de **carga en dos fases**: primero se obtiene una vista general y ligera de todos los análisis, y luego se cargan los detalles pesados (el `data`) bajo demanda solo para aquellos que ya han finalizado, optimizando así la velocidad de carga inicial de la página.
-
-
-
-## Reglas de Oro (Instrucciones para Gemini)
+        En esencia, es un sistema de **carga en dos fases**: primero se obtiene una vista general y ligera de todos los análisis, y luego se cargan los detalles pesados (el `data`) bajo demanda solo para aquellos que ya han finalizado, optimizando así la velocidad de carga inicial de la página.
+    
+    ## Restricciones de Longitud (Validación Multi-Nivel)
+    
+    Para garantizar la integridad de los datos y una interfaz de usuario limpia, se aplican los siguientes límites de caracteres en la base de datos, los esquemas de Pydantic y los campos de entrada del frontend:
+    
+    ### **Usuarios (PostgreSQL)**
+    - **Nombre completo:** Máximo **50 caracteres**.
+    - **Email:** Máximo **255 caracteres** (estándar).
+    
+    ### **Workspaces (PostgreSQL)**
+    - **Nombre:** Máximo **50 caracteres**.
+    - **Descripción:** Máximo **500 caracteres**.
+    
+    ### **Licitaciones (MongoDB)**
+    - **Nombre:** Máximo **255 caracteres**.
+    - **Descripción:** Máximo **1000 caracteres**.
+    
+    ### **Análisis (MongoDB)**
+    - **Nombre (General):** Máximo **255 caracteres**.
+    - **Nombre (Vista de resultados):** Máximo **50 caracteres**.    
+    ## Reglas de Oro (Instrucciones para Gemini)
 1. Siempre responde en español.
 2. Usa tipado estricto si usamos TypeScript.
 3. No sugieras librerías obsoletas.

@@ -15,8 +15,8 @@ class CollaboratorCreate(BaseModel):
 
 class WorkspaceBase(BaseModel):
     """Base schema for a workspace."""
-    name: str = Field(..., min_length=1, max_length=255, description="Name of the workspace")
-    description: str | None = Field(default=None, description="Detailed description of the workspace")
+    name: str = Field(..., min_length=1, max_length=50, description="Name of the workspace")
+    description: str | None = Field(default=None, max_length=500, description="Detailed description of the workspace")
 
 class WorkspaceCreate(WorkspaceBase):
     """Schema for creating a new workspace."""
@@ -24,7 +24,8 @@ class WorkspaceCreate(WorkspaceBase):
 
 class WorkspaceUpdate(WorkspaceBase):
     """Schema for updating an existing workspace."""
-    name: str | None = Field(default=None, min_length=1, max_length=255, description="New name of the workspace")
+    name: str | None = Field(default=None, min_length=1, max_length=50, description="New name of the workspace")
+    description: str | None = Field(default=None, max_length=500, description="New description of the workspace")
 
 class WorkspaceResponse(WorkspaceBase):
     """Schema for the response of a workspace."""
@@ -57,6 +58,7 @@ class WorkspaceMemberResponse(BaseModel):
     email: EmailStr = Field(..., description="User's email")
     full_name: str = Field(..., description="User's full name")
     role: str = Field(..., description="User's role in the workspace")
+    profile_picture: str | None = Field(default=None, description="Path to profile picture")
 
     model_config = ConfigDict(from_attributes=True)
 

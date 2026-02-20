@@ -75,6 +75,7 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
               placeholder={t('namePlaceholder')}
               value={spaceName}
               onChange={(e) => setSpaceName(e.target.value)}
+              maxLength={50}
               className="h-11 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
               disabled={isSubmitting} // Disable when submitting
             />
@@ -87,7 +88,7 @@ export function CreateSpaceForm({ onSubmit, onCancel, isSubmitting, error }: Cre
               placeholder={t('descriptionPlaceholder')}
               value={spaceDescription}
               onChange={(e) => setSpaceDescription(e.target.value)}
-              maxLength={100}
+              maxLength={500}
               className="h-11 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
               disabled={isSubmitting} // Disable when submitting
             />

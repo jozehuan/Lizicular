@@ -72,6 +72,23 @@
     "profile": "Perfil",
     "signOut": "Cerrar sesión"
   },
+  "ProfilePage": {
+    "title": "Perfil de Usuario",
+    "avatarTitle": "Elige tu avatar",
+    "deleteTitle": "Zona de Peligro",
+    "deleteDescription": "Si eliminas tu cuenta, perderás permanentemente toda la información de la que seas propietario, incluyendo espacios de trabajo y licitaciones.",
+    "deleteButton": "Eliminar cuenta",
+    "deleteConfirmTitle": "¿Estás completamente seguro?",
+    "deleteConfirmDescription": "Esta acción no se puede deshacer. Se eliminará tu cuenta y todos tus datos personales y de negocio asociados.",
+    "deleteConfirmAction": "Sí, eliminar mi cuenta",
+    "deleteCancelAction": "Cancelar",
+    "nameLabel": "Nombre completo",
+    "saveButton": "Guardar cambios",
+    "updateSuccess": "Perfil actualizado correctamente",
+    "updateError": "Error al actualizar el perfil",
+    "deleteSuccess": "Cuenta eliminada correctamente",
+    "deleteError": "Error al eliminar la cuenta"
+  },
   "HomePage": {
     "featuresTitle": "Todo lo que necesitas para gestionar licitaciones eficientemente",
     "docManagementTitle": "Gestión de documentos",

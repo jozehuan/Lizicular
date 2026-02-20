@@ -31,6 +31,7 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - **Framework:** Next.js (App Router)
 - **Lenguaje:** TypeScript
 - **UI:** React, Tailwind CSS, Shadcn/UI
+- **Páginas Principales:** Dashboard, Perfil de Usuario, Gestión de Espacios y Análisis de Licitaciones.
 - **Internacionalización:** Soporte para múltiples idiomas con `next-intl`.
 
 ### **Chatbot**
@@ -84,6 +85,8 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 
 ### **Usuarios (en `/auth/routes.py`)**
 - `GET /users/me`: Obtiene la información del perfil del usuario autenticado (Protegido con JWT).
+- `PATCH /users/me`: Actualiza información del perfil (nombre, avatar).
+- `DELETE /users/me`: Elimina permanentemente la cuenta y todos los datos asociados.
 
 ### **Chatbot (en `/chatbot/routes.py`)**
 - `POST /chatbot/chat`: Envía un mensaje al chatbot y recibe una respuesta (Protegido con JWT).
@@ -144,6 +147,8 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 11. **Arquitectura de Chatbot:** Se ha implementado la base para un agente de IA conversacional, con un sistema de agentes-herramienta, autenticación de usuario y registro de auditoría.
 12. **Robustez y Estabilidad del Backend:** Se han implementado mejoras significativas en la seguridad de las operaciones. La eliminación de workspaces ahora sigue un patrón transaccional para evitar datos huérfanos entre bases de datos. Además, las tareas asíncronas de análisis son ahora resilientes a condiciones de carrera, cancelándose de forma segura si la licitación asociada se elimina durante el procesamiento.
 13. **Optimización de Interfaz y Carga (Frontend):** Se ha refinado la experiencia de usuario en la página de licitaciones. El sistema ahora realiza refrescos silenciosos en segundo plano al volver a la pestaña, sin interrumpir con pantallas de carga globales. Además, la obtención de resultados de análisis se ha hecho secuencial y exhaustiva, garantizando la carga completa de datos detallados desde la colección de MongoDB para todos los análisis finalizados.
+14. **Gestión de Perfil y Validación Multi-Nivel:** Implementación de una página de perfil para personalización de avatares y nombres. Se han establecido restricciones de longitud estrictas en todos los elementos (Usuarios, Workspaces, Licitaciones) validadas tanto en base de datos como en backend y frontend para garantizar la integridad total de la información.
+15. **Borrado Seguro de Usuario:** Sistema de eliminación de cuenta que orquesta la limpieza de datos en PostgreSQL y MongoDB, asegurando que no queden rastros de información personal o de negocio del usuario al retirarse de la plataforma.
 
 ---
 **Desarrollado para la automatización eficiente de licitaciones.**

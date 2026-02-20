@@ -35,7 +35,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { FileText, Upload, X, Plus, Users, FolderOpen, Loader2, AlertCircle, Trash2 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import {
@@ -215,6 +215,7 @@ function NewTenderDialog({ isOpen, onClose, onSubmit, spaceId, isSubmitting, err
               value={tenderName}
               onChange={(e) => setTenderName(e.target.value)}
               placeholder={t('namePlaceholder')}
+              maxLength={255}
               className="h-11 rounded-xl border-border bg-background text-foreground placeholder:text-muted-foreground"
               disabled={isSubmitting}
             />
@@ -401,12 +402,13 @@ export default function SpaceDetailPage({
         const errorData = await membersResponse.json();
         throw new Error(errorData.detail || t('errors.fetchMembers'));
       }
-      const membersData: {user_id: string, email: string, full_name: string, role: string}[] = await membersResponse.json();
+      const membersData: {user_id: string, email: string, full_name: string, role: string, profile_picture: string}[] = await membersResponse.json();
       const mappedMembers = membersData.map(m => ({
         id: m.user_id,
         name: m.full_name,
         email: m.email,
         role: m.role,
+        avatar: m.profile_picture,
       }));
       setMembers(mappedMembers);
 
@@ -710,6 +712,7 @@ export default function SpaceDetailPage({
                         setNewWorkspaceName(workspace?.name || "");
                       }
                     }}
+                    maxLength={50}
                     className="h-9 text-2xl font-semibold bg-background"
                   />
                 ) : (
@@ -760,6 +763,7 @@ export default function SpaceDetailPage({
                       className="flex items-center gap-3 p-3 rounded-xl border border-border bg-muted/30"
                     >
                       <Avatar className="h-10 w-10">
+                        <AvatarImage src={member.avatar || "/avatar/blue_lizard.png"} alt={member.name} />
                         <AvatarFallback className="bg-primary/10 text-primary text-sm">
                           {getInitials(member.name)}
                         </AvatarFallback>

@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 
 from backend.auth.models import User, AuditAction, AuditCategory
-from backend.auth.schemas import UserCreate, UserResponse, Token, UserLogin, OAuthUserInfo
+from backend.auth.schemas import UserCreate, UserResponse, Token, UserLogin, OAuthUserInfo, UserUpdate
 from backend.auth.auth_utils import (
     get_password_hash,
     authenticate_user,
@@ -37,6 +37,8 @@ from backend.auth.oauth_utils import OAuthProvider, get_oauth_user
 from backend.auth.database import get_db
 from backend.auth.redis_client import get_redis
 from backend.auth.audit_utils import log_auth_event, create_audit_log
+from backend.workspaces.models import Workspace
+from backend.tenders.tenders_utils import MongoDB, delete_tenders_by_workspace
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -440,6 +442,114 @@ async def read_users_me(
         "updated_at": current_user.updated_at,
     }
     return UserResponse.model_validate(user_data_dict)
+
+@users_router.patch("/me", response_model=UserResponse, summary="Update current user information")
+async def update_user_me(
+    user_update: UserUpdate,
+    request: Request,
+    db: Any = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> UserResponse:
+    """
+    Update the current authenticated user's information.
+    """
+    if user_update.full_name is not None:
+        current_user.full_name = user_update.full_name
+    if user_update.profile_picture is not None:
+        current_user.profile_picture = user_update.profile_picture
+    
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    
+    await create_audit_log(
+        db=db,
+        category=AuditCategory.AUTH,
+        action=AuditAction.USER_UPDATE,
+        user_id=current_user.id,
+        payload=user_update.model_dump(exclude_unset=True),
+        success=True,
+        ip_address=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
+    
+    return current_user
+
+@users_router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, summary="Delete current user account")
+async def delete_user_me(
+    request: Request,
+    response: Response,
+    db: Any = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    token: str = Depends(oauth2_scheme),
+    redis: Any = Depends(get_redis)
+):
+    """
+    Permanently delete the current user's account and all associated data they own.
+    """
+    # 1. Capture IDs of workspaces owned by the user before deleting them
+    owned_workspaces_result = await db.execute(
+        select(Workspace.id).where(Workspace.owner_id == current_user.id)
+    )
+    owned_workspace_ids = [str(wid) for wid in owned_workspaces_result.scalars().all()]
+    
+    try:
+        # 2. Delete the user in PostgreSQL
+        # This will cascade delete: workspaces owned by user, memberships, and audit logs.
+        # We perform this in a transaction.
+        user_id = current_user.id
+        user_email = current_user.email
+        
+        # 3. Create a final audit log for the deletion BEFORE committing the delete
+        # This ensures the user still exists when the log is created.
+        await create_audit_log(
+            db=db,
+            category=AuditCategory.AUTH,
+            action=AuditAction.USER_DELETE,
+            user_id=user_id,
+            payload={"email": user_email, "owned_workspaces_deleted": len(owned_workspace_ids)},
+            success=True,
+            ip_address=request.client.host if request.client else "unknown",
+            user_agent=request.headers.get("user-agent")
+        )
+
+        await db.delete(current_user)
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete user account. Please try again later."
+        )
+
+    # 4. If SQL deletion was successful, clean up MongoDB
+    for workspace_id in owned_workspace_ids:
+        await delete_tenders_by_workspace(MongoDB.database, workspace_id)
+    
+    # 5. Invalidate the access token in Redis
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        jti = payload.get("jti")
+        if jti:
+            await add_token_to_blacklist(redis, jti, ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+    except JWTError:
+        pass
+    
+    # 6. Invalidate the refresh token from the cookie in Redis
+    refresh_token = request.cookies.get("refresh_token")
+    if refresh_token:
+        try:
+            payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+            jti_refresh = payload.get("jti")
+            if jti_refresh:
+                await add_token_to_blacklist(redis, jti_refresh, REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60)
+        except JWTError:
+            pass
+
+    # 7. Clear the refresh token cookie to effectively log the user out
+    response.delete_cookie(key="refresh_token")
+    
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.get("/providers", summary="Get enabled OAuth providers", tags=["OAuth2"])
 async def get_enabled_providers():

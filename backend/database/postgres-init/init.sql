@@ -11,16 +11,17 @@ BEGIN
         CREATE TYPE workspacerole AS ENUM ('OWNER', 'ADMIN', 'EDITOR', 'VIEWER');
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'auditcategory') THEN
-        CREATE TYPE auditcategory AS ENUM ('AUTH', 'WORKSPACE', 'TENDER', 'DOCUMENT', 'SYSTEM', 'N8N');
+        CREATE TYPE auditcategory AS ENUM ('AUTH', 'WORKSPACE', 'TENDER', 'DOCUMENT', 'SYSTEM', 'N8N', 'CHATBOT');
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'auditaction') THEN
         CREATE TYPE auditaction AS ENUM (
-            'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'PASSWORD_CHANGE', 'OAUTH_LOGIN', 'USER_VIEW',
+            'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'PASSWORD_CHANGE', 'OAUTH_LOGIN', 'USER_VIEW', 'USER_UPDATE', 'USER_DELETE',
             'WORKSPACE_CREATE', 'WORKSPACE_UPDATE', 'WORKSPACE_DELETE', 'MEMBER_ADD', 'MEMBER_REMOVE', 'ROLE_CHANGE',
             'TENDER_CREATE', 'TENDER_UPDATE', 'TENDER_DELETE', 'TENDER_VIEW', 'TENDER_ANALYZE',
             'DOCUMENT_UPLOAD', 'DOCUMENT_DELETE', 'DOCUMENT_EXTRACT',
             'SYSTEM_ERROR', 'SYSTEM_BACKUP',
-            'WORKFLOW_START', 'WORKFLOW_COMPLETE', 'WORKFLOW_ERROR'
+            'WORKFLOW_START', 'WORKFLOW_COMPLETE', 'WORKFLOW_ERROR',
+            'CHATBOT_QUESTION'
         );
     END IF;
 END $$;
@@ -30,11 +31,11 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) NOT NULL UNIQUE,
     hashed_password VARCHAR(255),
-    full_name VARCHAR(255) NOT NULL,
+    full_name VARCHAR(50) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     oauth_provider VARCHAR(50),
     oauth_id VARCHAR(255),
-    profile_picture TEXT,
+    profile_picture TEXT DEFAULT '/avatar/blue_lizard.png',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -45,8 +46,8 @@ CREATE INDEX IF NOT EXISTS ix_users_oauth_provider_id ON users (oauth_provider, 
 -- 4. Tabla de Workspaces
 CREATE TABLE IF NOT EXISTS workspaces (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
+    name VARCHAR(50) NOT NULL,
+    description VARCHAR(500),
     owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
