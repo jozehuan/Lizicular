@@ -69,6 +69,7 @@
   },
   "Header": {
     "greeting": "¡Hola, {name}!",
+    "profile": "Perfil",
     "signOut": "Cerrar sesión"
   },
   "HomePage": {
@@ -232,7 +233,7 @@
     }
   },
   "ChatbotWidget": {
-    "typing": "...",
+    "typing": "",
     "waiting": "Esperando respuesta...",
     "placeholder": "Escribe tu mensaje...",
     "sendAria": "Enviar mensaje",

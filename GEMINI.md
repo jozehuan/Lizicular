@@ -12,6 +12,23 @@ Esta aplicación es un proyecto para el desarrollo de una aplicación web llamad
 - **Infraestructura:** Docker Compose para orquestación de servicios locales.
 - **Estándares:** Tipado moderno (`Tipo | None`) y compatibilidad con Pydantic v2.
 
+## Arquitectura de Datos (MongoDB)
+La persistencia de los datos de negocio se gestiona en MongoDB a través de tres colecciones principales, siguiendo una arquitectura que separa los metadatos, los archivos binarios y los resultados detallados.
+
+1.  **`tenders`**:
+    *   **Propósito:** Es la colección central. Cada documento representa una única licitación y actúa como el contenedor principal de metadatos.
+    *   **Estructura:** Contiene campos como `name`, `description`, `workspace_id`, etc. Además, incluye dos arrays importantes:
+        *   `documents`: Un array de objetos que contienen los metadatos de los archivos subidos (nombre, tipo, tamaño), pero no el contenido binario.
+        *   `analysis_results`: Un array de **resúmenes ligeros** de los análisis ejecutados. Cada objeto en este array contiene metadatos como `id`, `name`, `status`, y `created_at`. El campo pesado `data` ha sido eliminado de esta vista para optimizar el rendimiento y el tamaño de los documentos.
+
+2.  **`tender_files`**:
+    *   **Propósito:** Almacena el contenido binario de todos los archivos que se suben al sistema.
+    *   **Estructura:** Cada documento contiene el `_id` (referenciado por el `id` en el array `documents` de un `tender`) y un campo `data` que guarda el archivo en formato binario de BSON. Esto evita sobrecargar los documentos de la colección `tenders` con datos pesados.
+
+3.  **`analysis_results`**:
+    *   **Propósito:** Almacena los documentos JSON completos y detallados generados por los automatismos (n8n). Esta es la **única fuente de la verdad** para el contenido detallado de un análisis.
+    *   **Estructura Dinámica:** La estructura de un documento en esta colección es **flexible y dinámica**. No sigue un esquema fijo. Cada documento contiene un `_id` (que corresponde al `id` en el array de resúmenes del `tender`), pero los demás campos dependen enteramente de lo que el automatismo específico haya extraído y devuelto. Esto permite una total flexibilidad para diferentes tipos de análisis sin restricciones de esquema.
+
 ## Estructura Actual
 - `/backend`
   - `main.py`: Punto de entrada de la API (orquesta los routers).
@@ -95,9 +112,11 @@ El módulo de autenticación y seguridad es completamente funcional y ha sido ex
 13. **Eliminación Segura en Cascada:** Se ha refactorizado la lógica de eliminación de workspaces para mejorar la seguridad transaccional. El nuevo proceso primero ejecuta las operaciones en la base de datos relacional (PostgreSQL) y, solo si la transacción tiene éxito, procede con el borrado de los datos asociados en MongoDB. Esto previene estados inconsistentes si una de las operaciones falla.
 14. **Tareas Asíncronas Robustas:** El proceso de generación de análisis en segundo plano se ha mejorado para ser resiliente a condiciones de carrera. Antes de actualizar un análisis finalizado, la tarea ahora verifica si la licitación principal todavía existe. Si fue eliminada durante el procesamiento, la tarea se aborta de forma segura, previniendo errores y notificando al cliente a través del WebSocket.
 15. **Gestión de Nombres de Análisis:** Se ha añadido un nuevo endpoint `PATCH /analysis-results/{analysis_id}` que permite a los usuarios con permisos de `EDITOR` renombrar un resultado de análisis. La operación se registra en el sistema de auditoría.
-16. **Consistencia del Modelo de Datos:** Se ha corregido una inconsistencia en la arquitectura de datos de MongoDB. La fuente de la verdad para los `analysis_results` son los documentos embebidos dentro de la colección `tenders`. Se han refactorizado los endpoints (como `GET /analysis-results/{analysis_id}`) para leer consistentemente de esta fuente embebida, eliminando la lógica que apuntaba a una colección separada y no utilizada.
+16. **Consistencia y Optimización de Datos:** Se ha corregido una inconsistencia en la arquitectura de MongoDB. Los resúmenes de análisis dentro de `tenders` ya no contienen el campo pesado `data`. La fuente de la verdad para los resultados detallados es exclusivamente la colección `analysis_results`. Se han refactorizado los modelos Pydantic y la lógica de actualización para eliminar redundancias y optimizar el tamaño de los documentos.
+17. **Carga Secuencial y Exhaustiva (Frontend):** Se ha implementado un sistema de parcheo secuencial para los resultados de análisis en la página de detalles. Esto evita límites de conexión del navegador y garantiza que, tras cada refresco, se obtenga la información detallada de *todos* los análisis completados directamente desde su colección dedicada.
+18. **Refresco Silencioso y Eficiente:** El frontend ahora utiliza la API de visibilidad del navegador para realizar refrescos parciales y silenciosos de los análisis cuando el usuario vuelve a la pestaña. Esto mantiene la información actualizada sin interrumpir la experiencia del usuario con pantallas de carga globales.
 
-### Arquitectura de Autenticación ("Gold Standard")
+## Arquitectura de Autenticación ("Gold Standard")
 
 La aplicación implementa un flujo de autenticación moderno y seguro, a menudo denominado "Gold Standard", que separa los tokens por su función y limita su exposición. El objetivo es proteger el `refreshToken` (de larga duración) de ataques XSS, mientras se utiliza un `accessToken` (de corta duración) para las operaciones diarias.
 

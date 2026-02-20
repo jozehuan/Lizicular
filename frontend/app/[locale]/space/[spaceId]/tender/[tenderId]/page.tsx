@@ -105,14 +105,17 @@ export default function TenderAnalysisPage({
 }) {
     const { spaceId, tenderId } = use(params)
     const t = useTranslations("TenderAnalysisPage");
-    const { user, accessToken, isLoading: isAuthLoading } = useAuth() // Get user and accessToken from useAuth
-  const [tender, setTender] = useState<TenderData | null>(null)
+    const { user, accessToken, isLoading: isAuthLoading } = useAuth()
+
+  const [tenderDetails, setTenderDetails] = useState<Omit<TenderData, 'analysis_results'> | null>(null);
+  const [analysisResults, setAnalysisResults] = useState<AnalysisResult[]>([]);
+
   const [workspaceName, setWorkspaceName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isEditingTenderName, setIsEditingTenderName] = useState(false) // State for inline editing
-  const [newTenderName, setNewTenderName] = useState("") // New tender name during editing
-  const [currentMemberRole, setCurrentMemberRole] = useState<string | null>(null) // User's role in the workspace
+  const [isEditingTenderName, setIsEditingTenderName] = useState(false)
+  const [newTenderName, setNewTenderName] = useState("")
+  const [currentMemberRole, setCurrentMemberRole] = useState<string | null>(null)
 
   const [resultToDeleteId, setResultToDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -128,75 +131,95 @@ export default function TenderAnalysisPage({
     const editableRoles = ["OWNER", "ADMIN", "EDITOR"];
     return currentMemberRole ? editableRoles.includes(currentMemberRole) : false;
   }, [currentMemberRole]);
-
-  const fetchTenderAndWorkspaceData = useCallback(async () => {
-    if (!accessToken || !user?.id || isAuthLoading) {
-      // Don't set error here, let the auth state settle
-      return;
+  
+  // Centralized sequential patching function to avoid rate limits/race conditions
+  const patchCompletedResults = async (results: AnalysisResult[]) => {
+    const patchedResults: AnalysisResult[] = [];
+    for (const result of results) {
+      // Force fetch for all completed items to ensure we have the latest full details from the analysis_results collection
+      if (result.status === 'completed') {
+        try {
+          const analysisRes = await fetch(`${API_URL}/analysis-results/${result.id}`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (analysisRes.ok) {
+            const fullAnalysisData = await analysisRes.json();
+            // Merge the fetched data (which might be the flat object or nested)
+            // Ideally backend returns the full object. We put it in 'data' prop if our interface expects it,
+            // or merge it. Based on previous fixes, we expect 'data' property.
+            // Let's assume the endpoint returns the FULL document including 'data' field or the fields themselves.
+            // Adjusting based on previous knowledge: The endpoint returns the full document.
+            // If the document has a 'data' field, we use it. If it's flat, we might need to adjust.
+            // However, the interface AnalysisResult has `data: any`.
+            // Let's assume the fetch returns the object that SHOULD go into `data`.
+            // Wait, previous backend fix made GET /analysis-results/:id return the full document from analysis_results collection.
+            // That document DOES NOT necessarily have a 'data' field wrapping everything if it's dynamic.
+            // It has 'info', 'requisitos', etc at top level.
+            // But our frontend interface and AnalysisDisplay expect `result.data` to hold this content.
+            // So we should assign the whole response to `data`.
+            patchedResults.push({ ...result, data: fullAnalysisData });
+          } else {
+            patchedResults.push(result);
+          }
+        } catch (patchError) {
+          console.error(`Failed to patch analysis data for ${result.id}:`, patchError);
+          patchedResults.push(result);
+        }
+      } else {
+        patchedResults.push(result);
+      }
     }
+    return patchedResults;
+  };
+
+  const refreshAnalysisResults = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const tenderRes = await fetch(`${API_URL}/tenders/${tenderId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!tenderRes.ok) return;
+
+      const tenderData: TenderData = await tenderRes.json();
+      const results = tenderData.analysis_results || [];
+      
+      // Use the sequential patcher
+      const patchedResults = await patchCompletedResults(results);
+      
+      setAnalysisResults(patchedResults);
+    } catch (e) {
+      console.error("Failed to refresh analysis results:", e);
+    }
+  }, [tenderId, accessToken]);
+
+  const fetchInitialPageData = useCallback(async () => {
+    if (!accessToken || !user?.id || isAuthLoading) return;
 
     setLoading(true);
     setError(null);
     try {
-      // Fetch all data in parallel
       const [tenderRes, workspaceRes, automationsRes] = await Promise.all([
-        fetch(`${API_URL}/tenders/${tenderId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`${API_URL}/workspaces/${spaceId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`${API_URL}/automations/`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
+        fetch(`${API_URL}/tenders/${tenderId}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch(`${API_URL}/workspaces/${spaceId}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        fetch(`${API_URL}/automations/`, { headers: { Authorization: `Bearer ${accessToken}` } }),
       ]);
 
-      if (!tenderRes.ok) {
-        const errorData = await tenderRes.json();
-        throw new Error(errorData.detail || t('errors.fetchTender'));
-      }
+      if (!tenderRes.ok) throw new Error(t('errors.fetchTender'));
       const tenderData: TenderData = await tenderRes.json();
+      const { analysis_results: initialResults, ...details } = tenderData;
+      setTenderDetails(details);
+      setNewTenderName(details.name);
       
-      // Create a new, immutable version of the analysis results by patching missing data
-      const results = tenderData.analysis_results || [];
-      const patchedResults = await Promise.all(results.map(async (result) => {
-        if (result.status === 'completed' && !result.data) {
-          try {
-            const analysisRes = await fetch(`${API_URL}/analysis-results/${result.id}`, {
-              headers: { Authorization: `Bearer ${accessToken}` },
-            });
-            if (analysisRes.ok) {
-              const fullAnalysisData = await analysisRes.json();
-              return { ...result, data: fullAnalysisData }; // Return a new object
-            }
-          } catch (patchError) {
-            console.error(`Failed to patch analysis data for ${result.id}:`, patchError);
-          }
-        }
-        return result; // Return the original result if no patching is needed
-      }));
+      const patchedInitialResults = await patchCompletedResults(initialResults || []);
+      setAnalysisResults(patchedInitialResults);
 
-      const updatedTenderData = { ...tenderData, analysis_results: patchedResults };
-
-      setTender(updatedTenderData);
-      setNewTenderName(updatedTenderData.name);
-
-      if (!workspaceRes.ok) {
-        const errorData = await workspaceRes.json();
-        throw new Error(errorData.detail || t('errors.fetchWorkspace'));
-      }
+      if (!workspaceRes.ok) throw new Error(t('errors.fetchWorkspace'));
       const workspaceData = await workspaceRes.json();
       setWorkspaceName(workspaceData.name);
-
-      const currentUserMembership = workspaceData.members.find(
-        (member: any) => member.user_id === user.id
-      );
+      const currentUserMembership = workspaceData.members.find((member: any) => member.user_id === user.id);
       setCurrentMemberRole(currentUserMembership ? currentUserMembership.role : null);
 
-      if (!automationsRes.ok) {
-        const errorData = await automationsRes.json();
-        throw new Error(errorData.detail || t('errors.fetchAutomations'));
-      }
+      if (!automationsRes.ok) throw new Error(t('errors.fetchAutomations'));
       const automationsData: Automation[] = await automationsRes.json();
       setAutomations(automationsData);
 
@@ -207,317 +230,127 @@ export default function TenderAnalysisPage({
     }
   }, [spaceId, tenderId, accessToken, user?.id, isAuthLoading, t]);
 
+  useEffect(() => {
+    fetchInitialPageData();
+  }, [fetchInitialPageData]);
 
   useEffect(() => {
-    fetchTenderAndWorkspaceData();
-  }, [fetchTenderAndWorkspaceData]);
-
-  // WebSocket logic for real-time analysis updates
-  useEffect(() => {
-    if (!tender?.analysis_results) return;
-
+    if (analysisResults.length === 0) return;
     const sockets: WebSocket[] = [];
-
-    tender.analysis_results.forEach(result => {
+    analysisResults.forEach(result => {
       if (result.status === 'pending' || result.status === 'processing') {
         const wsUrl = API_URL.replace(/^http/, 'ws') + `/ws/analysis/${result.id}`;
-        
         try {
           const ws = new WebSocket(wsUrl);
-
-          ws.onmessage = (event) => {
-            try {
-              const message = JSON.parse(event.data);
-              if (message.status === 'COMPLETED' || message.status === 'FAILED') {
-                // Refetch all data to ensure UI is in sync with the database
-                fetchTenderAndWorkspaceData();
-              }
-            } catch (e) {
-              console.error('Failed to parse WebSocket message:', e);
-            }
-          };
-          ws.onerror = (error) => {
-            console.error(`WebSocket error for analysis ${result.id}:`, error);
-          };
-          
+          ws.onmessage = () => refreshAnalysisResults();
+          ws.onerror = (error) => console.error(`WebSocket error for analysis ${result.id}:`, error);
           sockets.push(ws);
-
-        } catch (error) {
-          console.error(`Failed to create WebSocket for analysis ${result.id}:`, error);
-        }
+        } catch (error) { console.error(`Failed to create WebSocket for analysis ${result.id}:`, error); }
       }
     });
-
-    // Cleanup on component unmount
-    return () => {
-      sockets.forEach(ws => {
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
+    return () => sockets.forEach(ws => ws.close());
+  }, [analysisResults, refreshAnalysisResults]);
+  
+    useEffect(() => {
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          refreshAnalysisResults(); // Silent background refresh of analysis only
         }
-      });
-    };
-  }, [tender?.analysis_results, fetchTenderAndWorkspaceData]);
-
-  // Refetch data when the tab becomes visible again to ensure freshness
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchTenderAndWorkspaceData();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [fetchTenderAndWorkspaceData]);
-
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [refreshAnalysisResults]);
 
   const handleUpdateTenderName = async () => {
-    if (!tender || !accessToken || newTenderName === tender.name) {
-      setIsEditingTenderName(false);
-      return;
-    }
-
+    if (!tenderDetails || !accessToken || newTenderName === tenderDetails.name) { setIsEditingTenderName(false); return; }
     try {
-      const response = await fetch(`${API_URL}/tenders/${tender.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+      const response = await fetch(`${API_URL}/tenders/${tenderDetails.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, },
         body: JSON.stringify({ name: newTenderName }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || t('errors.updateTenderName'));
-      }
-
+      if (!response.ok) { throw new Error((await response.json()).detail || t('errors.updateTenderName')); }
       const updatedTender: TenderData = await response.json();
-      // Use functional update to preserve patched analysis data
-      setTender(prevTender => ({
-        ...(prevTender || updatedTender),
-        ...updatedTender,
-        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
-      }));
+      const { analysis_results, ...details } = updatedTender;
+      setTenderDetails(details);
       setIsEditingTenderName(false);
-      setError(null);
     } catch (err: any) {
       setError(err.message || t('errors.updateTenderName'));
-      // Revert to original name on error
-      setNewTenderName(tender.name);
+      setNewTenderName(tenderDetails.name);
       setIsEditingTenderName(false);
     }
   };
 
-
-  const [showAddFileDialog, setShowAddFileDialog] = useState(false); // State for file upload dialog
-  const [filesToUpload, setFilesToUpload] = useState<File[]>([]); // Files selected for upload
-  const [isUploadingFiles, setIsUploadingFiles] = useState(false); // Loading state for file upload
-  const [uploadError, setUploadError] = useState<string | null>(null); // Error for file upload
-
-  const fileInputRef = useRef<HTMLInputElement>(null); // Ref for hidden file input
-
-  const handleDeleteAnalysisClick = (analysisId: string) => {
-    setResultToDeleteId(analysisId);
-  };
+  const handleDeleteAnalysisClick = (analysisId: string) => setResultToDeleteId(analysisId);
 
   const handleConfirmDelete = async () => {
-    if (!resultToDeleteId || !tender) return;
-
+    if (!resultToDeleteId || !tenderDetails) return;
     setIsDeleting(true);
-    setError(null);
     try {
-      const response = await fetch(`${API_URL}/tenders/${tender.id}/analysis/${resultToDeleteId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+      const response = await fetch(`${API_URL}/tenders/${tenderDetails.id}/analysis/${resultToDeleteId}`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` },
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || t('errors.deleteAnalysis'));
-      }
-
-      // Refresh data to show updated list
-      await fetchTenderAndWorkspaceData();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
+      if (!response.ok) { throw new Error((await response.json()).detail || t('errors.deleteAnalysis')); }
+      await refreshAnalysisResults();
+    } catch (err: any) { setError(err.message); } finally {
       setIsDeleting(false);
       setResultToDeleteId(null);
     }
   };
 
   const handleGenerateAnalysis = async () => {
-    if (!selectedAutomationId) {
-      setGenerateError(t('errors.selectAutomation'));
-      return;
-    }
-
-    setIsGenerating(true);
-    setGenerateError(null);
-
+    if (!selectedAutomationId) { setGenerateError(t('errors.selectAutomation')); return; }
+    setIsGenerating(true); setGenerateError(null);
     try {
       let finalName = newAnalysisName.trim();
       if (!finalName) {
         const selectedAutomation = automations.find(a => a.id === selectedAutomationId);
-        const automationName = selectedAutomation?.name || "Analysis";
-        finalName = `${automationName} - ${format(new Date(), "yyyy-MM-dd HH:mm")}`;
+        finalName = `${selectedAutomation?.name || "Analysis"} - ${format(new Date(), "yyyy-MM-dd HH:mm")}`;
       }
-
       const response = await fetch(`${API_URL}/tenders/${tenderId}/generate_analysis`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          automation_id: selectedAutomationId,
-          name: finalName,
-        }),
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ automation_id: selectedAutomationId, name: finalName }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || t('errors.generateAnalysis'));
-      }
-
-      // Success
-      setShowGenerateDialog(false);
-      setNewAnalysisName("");
-      setSelectedAutomationId(null);
-      await fetchTenderAndWorkspaceData(); // Refresh data to show pending analysis
-
-    } catch (err: any) {
-      setGenerateError(err.message);
-    } finally {
-      setIsGenerating(false);
-    }
+      if (!response.ok) { throw new Error((await response.json()).detail || t('errors.generateAnalysis')); }
+      setShowGenerateDialog(false); setNewAnalysisName(""); setSelectedAutomationId(null);
+      await refreshAnalysisResults();
+    } catch (err: any) { setGenerateError(err.message); } finally { setIsGenerating(false); }
   };
 
+  const [showAddFileDialog, setShowAddFileDialog] = useState(false);
+  const [filesToUpload, setFilesToUpload] = useState<File[]>([]);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Function to handle adding files
   const handleAddFiles = async () => {
-    if (!tender || filesToUpload.length === 0) {
-      setUploadError(t('errors.noFilesSelected'));
-      return;
-    }
-    if (!accessToken) {
-      setUploadError(t('errors.noAuth'));
-      return;
-    }
-
-    setIsUploadingFiles(true);
-    setUploadError(null);
-
+    if (!tenderDetails || filesToUpload.length === 0 || !accessToken) return;
+    setIsUploadingFiles(true); setUploadError(null);
     try {
       const formData = new FormData();
-      filesToUpload.forEach((file) => {
-        formData.append("files", file);
+      filesToUpload.forEach(file => formData.append("files", file));
+      const response = await fetch(`${API_URL}/tenders/${tenderDetails.id}/documents`, {
+        method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body: formData,
       });
-
-      const response = await fetch(`${API_URL}/tenders/${tender.id}/documents`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          // Content-Type is set automatically by FormData
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || t('errors.uploadFailed'));
-      }
-
-      const updatedTender = await response.json();
-      // Use functional update to preserve patched analysis data
-      setTender(prevTender => ({
-        ...(prevTender || updatedTender),
-        ...updatedTender,
-        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
-      }));
-      setShowAddFileDialog(false); // Close dialog
-      setFilesToUpload([]); // Clear selected files
-      setError(null); // Clear any main error
-    } catch (err: any) {
-      setUploadError(err.message || t('errors.uploadError'));
-    } finally {
-      setIsUploadingFiles(false);
-    }
+      if (!response.ok) { throw new Error((await response.json()).detail || t('errors.uploadFailed')); }
+      setShowAddFileDialog(false); setFilesToUpload([]);
+      await fetchInitialPageData();
+    } catch (err: any) { setUploadError(err.message || t('errors.uploadError')); } finally { setIsUploadingFiles(false); }
   };
 
-  // Function to handle removing a document
   const handleRemoveDocument = async (documentId: string) => {
-    if (!tender) return;
-    if (!accessToken) {
-      setUploadError(t('errors.noAuth'));
-      return;
-    }
-
+    if (!tenderDetails || !accessToken) return;
     try {
-      const response = await fetch(`${API_URL}/tenders/${tender.id}/documents/${documentId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+      const response = await fetch(`${API_URL}/tenders/${tenderDetails.id}/documents/${documentId}`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` },
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || t('errors.removeDocument'));
-      }
-
-      const updatedTender = await response.json();
-      // Use functional update to preserve patched analysis data
-      setTender(prevTender => ({
-        ...(prevTender || updatedTender),
-        ...updatedTender,
-        analysis_results: prevTender?.analysis_results || updatedTender.analysis_results,
-      }));
-      setError(null); // Clear any main error
-    } catch (err: any) {
-      setError(err.message || t('errors.removeDocumentError'));
-    }
+      if (!response.ok) { throw new Error((await response.json()).detail || t('errors.removeDocument')); }
+      await fetchInitialPageData();
+    } catch (err: any) { setError(err.message || t('errors.removeDocumentError')); }
   };
   
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <Loader2 className="h-16 w-16 animate-spin" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col justify-center items-center min-h-screen text-red-500">
-        <AlertTriangle className="h-16 w-16 mb-4" />
-        <h1 className="text-2xl font-bold mb-2">{t('errors.fetchTenderTitle')}</h1>
-        <p>{error}</p>
-        <Link href="/dashboard" className="mt-4 text-blue-500 hover:underline">
-          {t('goToDashboard')}
-        </Link>
-      </div>
-    )
-  }
-
-  if (!tender) {
-    return (
-      <div className="flex flex-col justify-center items-center min-h-screen">
-        <AlertTriangle className="h-16 w-16 mb-4 text-gray-400" />
-        <h1 className="text-2xl font-bold mb-2">{t('notFound.title')}</h1>
-        <p>{t('notFound.message')}</p>
-        <Link href="/dashboard" className="mt-4 text-blue-500 hover:underline">
-            {t('goToDashboard')}
-        </Link>
-      </div>
-    )
-  }
+  if (loading) return <div className="flex justify-center items-center min-h-screen"><Loader2 className="h-16 w-16 animate-spin" /></div>;
+  if (error) return <div className="flex flex-col justify-center items-center min-h-screen text-red-500"><AlertTriangle className="h-16 w-16 mb-4" /><h1 className="text-2xl font-bold mb-2">{t('errors.fetchTenderTitle')}</h1><p>{error}</p><Link href="/dashboard" className="mt-4 text-blue-500 hover:underline">{t('goToDashboard')}</Link></div>;
+  if (!tenderDetails) return <div className="flex flex-col justify-center items-center min-h-screen"><AlertTriangle className="h-16 w-16 mb-4 text-gray-400" /><h1 className="text-2xl font-bold mb-2">{t('notFound.title')}</h1><p>{t('notFound.message')}</p><Link href="/dashboard" className="mt-4 text-blue-500 hover:underline">{t('goToDashboard')}</Link></div>;
 
   return (
     <ProtectedRoute>
@@ -525,52 +358,25 @@ export default function TenderAnalysisPage({
         <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full">
           <Breadcrumb className="mb-8">
             <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/dashboard" className="text-muted-foreground hover:text-foreground">
-                  {t('breadcrumbs.home')}
-                </BreadcrumbLink>
-              </BreadcrumbItem>
+              <BreadcrumbItem><BreadcrumbLink href="/dashboard" className="text-muted-foreground hover:text-foreground">{t('breadcrumbs.home')}</BreadcrumbLink></BreadcrumbItem>
               <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href={`/space/${spaceId}`} className="text-muted-foreground hover:text-foreground">
-                  {workspaceName || spaceId} 
-                </BreadcrumbLink>
-              </BreadcrumbItem>
+              <BreadcrumbItem><BreadcrumbLink href={`/space/${spaceId}`} className="text-muted-foreground hover:text-foreground">{workspaceName || spaceId}</BreadcrumbLink></BreadcrumbItem>
               <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage className="text-foreground font-medium">
-                  {tender.name}
-                </BreadcrumbPage>
-              </BreadcrumbItem>
+              <BreadcrumbItem><BreadcrumbPage className="text-foreground font-medium">{tenderDetails.name}</BreadcrumbPage></BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-
           <Card className="border-border rounded-xl bg-card mb-8">
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex-grow">
                   {isEditingTenderName && canEditTender ? (
-                    <Input
-                      value={newTenderName}
-                      onChange={(e) => setNewTenderName(e.target.value)}
-                      onBlur={handleUpdateTenderName}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleUpdateTenderName();
-                        if (e.key === "Escape") {
-                          setIsEditingTenderName(false);
-                          setNewTenderName(tender?.name || "");
-                        }
-                      }}
-                      className="h-9 text-2xl font-semibold bg-background"
-                    />
+                    <Input value={newTenderName} onChange={(e) => setNewTenderName(e.target.value)} onBlur={handleUpdateTenderName} onKeyDown={(e) => { if (e.key === "Enter") handleUpdateTenderName(); if (e.key === "Escape") { setIsEditingTenderName(false); setNewTenderName(tenderDetails?.name || ""); } }} className="h-9 text-2xl font-semibold bg-background" />
                   ) : (
                     <CardTitle className="text-2xl text-foreground flex items-baseline gap-2 cursor-pointer" onDoubleClick={() => canEditTender && setIsEditingTenderName(true)}>
-                      {tender.name}
+                      {tenderDetails.name}
                     </CardTitle>
                   )}
-                  <p className="text-muted-foreground mt-2">
-                    {t('createdOn', { date: format(new Date(tender.created_at), "MMMM d, yyyy") })}
-                  </p>
+                  <p className="text-muted-foreground mt-2">{t('createdOn', { date: format(new Date(tenderDetails.created_at), "MMMM d, yyyy") })}</p>
                 </div>
               </div>
             </CardHeader>
@@ -578,76 +384,26 @@ export default function TenderAnalysisPage({
               <div className="space-y-4">
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-muted-foreground">
-                      {t('attachedFiles')}
-                    </h3>
-                    {canEditTender && (
-                      <Button variant="ghost" size="sm" onClick={() => setShowAddFileDialog(true)} className="h-7 px-3 text-muted-foreground hover:text-foreground">
-                        <Plus className="h-4 w-4 mr-1" /> {t('addFilesButton')}
-                      </Button>
-                    )}
+                    <h3 className="text-sm font-medium text-muted-foreground">{t('attachedFiles')}</h3>
+                    {canEditTender && <Button variant="ghost" size="sm" onClick={() => setShowAddFileDialog(true)} className="h-7 px-3 text-muted-foreground hover:text-foreground"><Plus className="h-4 w-4 mr-1" /> {t('addFilesButton')}</Button>}
                   </div>
-                  {tender.documents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{t('noFiles')}</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {tender.documents.map((file) => (
-                        <div key={file.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border">
-                          <FileText className="h-4 w-4 text-red-500" />
-                          <span className="text-sm text-foreground">{file.filename}</span>
-                          {canEditTender && (
-                            <Button variant="ghost" size="icon" onClick={() => handleRemoveDocument(file.id)} className="h-6 w-6 text-muted-foreground hover:text-destructive">
-                              <X className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {tenderDetails.documents.length === 0 ? <p className="text-sm text-muted-foreground">{t('noFiles')}</p> : <div className="flex flex-wrap gap-2">{tenderDetails.documents.map((file) => <div key={file.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border"><FileText className="h-4 w-4 text-red-500" /> <span className="text-sm text-foreground">{file.filename}</span>{canEditTender && <Button variant="ghost" size="icon" onClick={() => handleRemoveDocument(file.id)} className="h-6 w-6 text-muted-foreground hover:text-destructive"><X className="h-4 w-4" /></Button>}</div>)}</div>}
                 </div>
                 <div className="flex items-center gap-6 pt-2">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
-                      {t('analysisCount', { count: tender.analysis_results.length })}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
-                      {t('fileCount', { count: tender.documents.length })}
-                    </span>
-                  </div>
+                  <div className="flex items-center gap-2"><TrendingUp className="h-4 w-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">{t('analysisCount', { count: analysisResults.length })}</span></div>
+                  <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">{t('fileCount', { count: tenderDetails.documents.length })}</span></div>
                 </div>
               </div>
             </CardContent>
           </Card>
-
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-foreground">
-                {t('analysisResultsTitle')}
-              </h2>
-              {canEditTender && (
-                <Button onClick={() => setShowGenerateDialog(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t('generateAnalysisButton')}
-                </Button>
-              )}
-            </div>
-            <AnalysisDisplay 
-              analysisResults={tender.analysis_results} 
-              onDelete={handleDeleteAnalysisClick}
-              spaceId={spaceId}
-              tenderId={tenderId}
-            />
+            <div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-foreground">{t('analysisResultsTitle')}</h2>{canEditTender && <Button onClick={() => setShowGenerateDialog(true)}><Plus className="mr-2 h-4 w-4" />{t('generateAnalysisButton')}</Button>}</div>
+            <AnalysisDisplay analysisResults={analysisResults} onDelete={handleDeleteAnalysisClick} spaceId={spaceId} tenderId={tenderId}/>
           </div>
         </main>
-
         <DashboardFooter />
         <ChatbotWidget />
       </div>
-
       <Dialog open={showAddFileDialog} onOpenChange={setShowAddFileDialog}>
         <DialogContent className="rounded-xl border-border bg-card max-w-lg">
           <DialogHeader>
