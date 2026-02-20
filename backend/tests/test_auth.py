@@ -182,3 +182,45 @@ async def test_refresh_token_rotation_security(client):
     # Debería fallar porque el token antiguo está en la blacklist de Redis
     assert res2.status_code == 401
     assert "revoked" in res2.json()["detail"].lower()
+
+@pytest.mark.asyncio
+async def test_update_user_me(client):
+    """Test updating user profile."""
+    email = f"update_{uuid.uuid4().hex[:8]}@example.com"
+    password = "UpdatePass123!"
+    
+    await client.post("/auth/signup", json={"email": email, "password": password, "full_name": "Update User"})
+    login_res = await client.post("/auth/login", data={"username": email, "password": password})
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    payload = {"full_name": "Updated Name", "profile_picture": "/avatar/green_lizard.png"}
+    response = await client.patch("/users/me", json=payload, headers=headers)
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["full_name"] == "Updated Name"
+    assert data["profile_picture"] == "/avatar/green_lizard.png"
+
+@pytest.mark.asyncio
+async def test_delete_user_me(client):
+    """Test deleting the current user account."""
+    email = f"delete_{uuid.uuid4().hex[:8]}@example.com"
+    password = "DeletePass123!"
+    
+    await client.post("/auth/signup", json={"email": email, "password": password, "full_name": "Delete User"})
+    login_res = await client.post("/auth/login", data={"username": email, "password": password})
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Try to access me before deletion
+    me_res_before = await client.get("/users/me", headers=headers)
+    assert me_res_before.status_code == 200
+    
+    # Delete user
+    delete_res = await client.delete("/users/me", headers=headers)
+    assert delete_res.status_code == 204
+    
+    # Try to access me after deletion
+    me_res_after = await client.get("/users/me", headers=headers)
+    assert me_res_after.status_code == 401

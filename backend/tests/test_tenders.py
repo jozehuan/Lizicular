@@ -1,7 +1,10 @@
-
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 import uuid
+from sqlalchemy.ext.asyncio import AsyncSession
+from backend.tenders.tenders_utils import MongoDB
+from bson import ObjectId
 
 # --- Helper Functions ---
 
@@ -14,7 +17,7 @@ async def create_user_and_login(client: AsyncClient, role_name: str) -> tuple[st
     assert signup_res.status_code == 201
     user_data = signup_res.json()
     
-    login_res = await client.post("/auth/login", data={"username": email, "password": password})
+    login_res = await client.post("/auth/login/json", json={"email": email, "password": password})
     assert login_res.status_code == 200
     token = login_res.json()["access_token"]
     
@@ -45,27 +48,19 @@ async def test_create_tender_with_editor_role(client: AsyncClient):
     
     # 4. Editor creates a tender in that workspace
     editor_headers = {"Authorization": f"Bearer {editor_token}"}
-    tender_payload = {
+    tender_data = {
         "workspace_id": workspace_id,
         "name": "New Public Tender",
         "description": "Construction of a new bridge",
-        "created_by": editor_data["id"],
-        "documents": [{
-            "id": str(uuid.uuid4()),
-            "name": "document1.pdf",
-            "file_type": "pdf",
-            "file_size": 1024,
-            "file_url": "s3://bucket/document1.pdf",
-            "uploaded_by": editor_data["id"]
-        }]
     }
-    response = await client.post("/tenders/", json=tender_payload, headers=editor_headers)
+    files = {"files": ("document1.pdf", b"dummy content", "application/pdf")}
+    response = await client.post("/tenders/", data=tender_data, files=files, headers=editor_headers)
     
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "New Public Tender"
     assert data["workspace_id"] == workspace_id
-    assert "_id" in data
+    assert "id" in data
 
 @pytest.mark.asyncio
 async def test_create_tender_with_viewer_role_fails(client: AsyncClient):
@@ -79,20 +74,12 @@ async def test_create_tender_with_viewer_role_fails(client: AsyncClient):
     await client.post(f"/workspaces/{workspace_id}/members", json={"user_email": viewer_data["email"], "role": "VIEWER"}, headers=owner_headers)
     
     viewer_headers = {"Authorization": f"Bearer {viewer_token}"}
-    tender_payload = {
+    tender_data = {
         "workspace_id": workspace_id,
         "name": "Illegal Tender",
-        "created_by": viewer_data["id"],
-        "documents": [{
-            "id": str(uuid.uuid4()),
-            "name": "document1.pdf",
-            "file_type": "pdf",
-            "file_size": 1024,
-            "file_url": "s3://bucket/document1.pdf",
-            "uploaded_by": viewer_data["id"]
-        }]
     }
-    response = await client.post("/tenders/", json=tender_payload, headers=viewer_headers)
+    files = {"files": ("document1.pdf", b"dummy content", "application/pdf")}
+    response = await client.post("/tenders/", data=tender_data, files=files, headers=viewer_headers)
     
     assert response.status_code == 403
     assert "permission denied" in response.json()["detail"].lower()
@@ -106,29 +93,21 @@ async def test_list_and_get_tender(client: AsyncClient):
     workspace_id = await create_workspace(client, owner_token)
 
     # Create a tender
-    tender_payload = {
+    tender_data = {
         "workspace_id": workspace_id,
         "name": "Gettable Tender",
-        "created_by": owner_data["id"],
-        "documents": [{
-            "id": str(uuid.uuid4()),
-            "name": "doc.pdf",
-            "file_type": "pdf",
-            "file_size": 2048,
-            "file_url": "s3://bucket/doc.pdf",
-            "uploaded_by": owner_data["id"]
-        }]
     }
-    create_res = await client.post("/tenders/", json=tender_payload, headers=owner_headers)
+    files = {"files": ("doc.pdf", b"dummy content", "application/pdf")}
+    create_res = await client.post("/tenders/", data=tender_data, files=files, headers=owner_headers)
     assert create_res.status_code == 201
-    tender_id = create_res.json()["_id"]
+    tender_id = create_res.json()["id"]
 
     # List tenders in workspace
     list_res = await client.get(f"/tenders/workspace/{workspace_id}", headers=owner_headers)
     assert list_res.status_code == 200
     tenders = list_res.json()
     assert len(tenders) == 1
-    assert tenders[0]["_id"] == tender_id
+    assert tenders[0]["id"] == tender_id
 
     # Get tender by ID
     get_res = await client.get(f"/tenders/{tender_id}", headers=owner_headers)
@@ -145,22 +124,14 @@ async def test_delete_tender_with_admin_role(client: AsyncClient):
     workspace_id = await create_workspace(client, owner_token)
     
     # Owner creates a tender
-    tender_payload = {
+    tender_data = {
         "workspace_id": workspace_id,
         "name": "Deletable Tender",
-        "created_by": owner_data["id"],
-        "documents": [{
-            "id": str(uuid.uuid4()),
-            "name": "doc_to_del.pdf",
-            "file_type": "pdf",
-            "file_size": 100,
-            "file_url": "s3://bucket/doc.pdf",
-            "uploaded_by": owner_data["id"]
-        }]
     }
-    create_res = await client.post("/tenders/", json=tender_payload, headers=owner_headers)
+    files = {"files": ("doc_to_del.pdf", b"dummy content", "application/pdf")}
+    create_res = await client.post("/tenders/", data=tender_data, files=files, headers=owner_headers)
     assert create_res.status_code == 201
-    tender_id = create_res.json()["_id"]
+    tender_id = create_res.json()["id"]
     
     # Owner makes the other user an ADMIN
     await client.post(f"/workspaces/{workspace_id}/members", json={"user_email": admin_data["email"], "role": "ADMIN"}, headers=owner_headers)
@@ -178,49 +149,45 @@ async def test_delete_tender_with_admin_role(client: AsyncClient):
 
 # --- Analysis Results Tests ---
 
-@pytest.mark.asyncio
-async def test_add_and_delete_analysis_result(client: AsyncClient):
-    """Test adding and deleting an analysis result from a tender."""
+@pytest_asyncio.fixture
+async def setup_tender_with_analysis(client: AsyncClient):
     owner_token, owner_data = await create_user_and_login(client, "owner")
     owner_headers = {"Authorization": f"Bearer {owner_token}"}
     workspace_id = await create_workspace(client, owner_token)
 
-    # Create a tender
-    tender_payload = {
+    tender_data = {
         "workspace_id": workspace_id,
         "name": "Analysis Tender",
-        "created_by": owner_data["id"],
-        "documents": [{
-            "id": str(uuid.uuid4()),
-            "name": "analysis_doc.pdf",
-            "file_type": "pdf",
-            "file_size": 512,
-            "file_url": "s3://bucket/doc.pdf",
-            "uploaded_by": owner_data["id"]
-        }]
     }
-    create_res = await client.post("/tenders/", json=tender_payload, headers=owner_headers)
+    files = {"files": ("analysis_doc.pdf", b"dummy content", "application/pdf")}
+    create_res = await client.post("/tenders/", data=tender_data, files=files, headers=owner_headers)
     assert create_res.status_code == 201
-    tender_id = create_res.json()["_id"]
-
-    # Add an analysis result
-    analysis_payload = {
-        "id": str(uuid.uuid4()),
+    tender_id = create_res.json()["id"]
+    
+    analysis_id = str(uuid.uuid4())
+    analysis_result = {
+        "id": analysis_id,
         "name": "Initial Analysis",
         "procedure_id": "proc-123",
         "procedure_name": "Basic Extraction",
         "created_by": owner_data["id"],
-        "data": {}
+        "status": "completed",
     }
-    add_res = await client.post(f"/tenders/{tender_id}/analysis", json=analysis_payload, headers=owner_headers)
-    assert add_res.status_code == 200
-    tender_with_analysis = add_res.json()
-    assert len(tender_with_analysis["analysis_results"]) == 1
-    
-    result_id = tender_with_analysis["analysis_results"][0]["id"]
+
+    await MongoDB.database.tenders.update_one(
+        {"_id": ObjectId(tender_id)},
+        {"$push": {"analysis_results": analysis_result}}
+    )
+    return owner_headers, tender_id, analysis_id
+
+
+@pytest.mark.asyncio
+async def test_add_and_delete_analysis_result(client: AsyncClient, setup_tender_with_analysis):
+    """Test adding and deleting an analysis result from a tender."""
+    owner_headers, tender_id, analysis_id = setup_tender_with_analysis
     
     # Delete the analysis result
-    delete_res = await client.delete(f"/tenders/{tender_id}/analysis/{result_id}", headers=owner_headers)
+    delete_res = await client.delete(f"/tenders/{tender_id}/analysis/{analysis_id}", headers=owner_headers)
     assert delete_res.status_code == 200
     tender_after_delete = delete_res.json()
     assert len(tender_after_delete["analysis_results"]) == 0
@@ -300,3 +267,76 @@ async def test_get_all_tenders_for_user_permissions(client: AsyncClient):
     tenders_a_after_share = all_tenders_a_after_share_res.json()
     assert len(tenders_a_after_share) == 1
     assert tenders_a_after_share[0]["name"] == tender_a_name
+
+@pytest.mark.asyncio
+async def test_patch_tender(client: AsyncClient):
+    """Test updating a tender's name."""
+    owner_token, owner_data = await create_user_and_login(client, "owner_patch")
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    workspace_id = await create_workspace(client, owner_token)
+
+    tender_data = {
+        "workspace_id": workspace_id,
+        "name": "Old Tender Name",
+    }
+    create_res = await client.post("/tenders/", data=tender_data, headers=owner_headers)
+    assert create_res.status_code == 201
+    tender_id = create_res.json()["id"]
+
+    patch_payload = {"name": "New Tender Name"}
+    patch_res = await client.patch(f"/tenders/{tender_id}", json=patch_payload, headers=owner_headers)
+    
+    assert patch_res.status_code == 200
+    assert patch_res.json()["name"] == "New Tender Name"
+
+@pytest.mark.asyncio
+async def test_add_and_delete_document(client: AsyncClient):
+    """Test adding and deleting a document from an existing tender."""
+    owner_token, owner_data = await create_user_and_login(client, "owner_doc")
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    workspace_id = await create_workspace(client, owner_token)
+
+    # Need at least one doc to create the tender
+    create_res = await client.post(
+        "/tenders/",
+        headers=owner_headers,
+        data={"workspace_id": workspace_id, "name": "Document Tender"},
+        files={"files": ("file1.txt", b"content", "text/plain")}
+    )
+    assert create_res.status_code == 201
+    tender_id = create_res.json()["id"]
+    
+    # Add a new document
+    add_res = await client.post(
+        f"/tenders/{tender_id}/documents",
+        headers=owner_headers,
+        files={"files": ("file2.txt", b"new content", "text/plain")}
+    )
+    assert add_res.status_code == 200
+    data = add_res.json()
+    assert len(data["documents"]) == 2
+    
+    doc_to_delete_id = data["documents"][1]["id"]
+    
+    # Delete the document
+    del_res = await client.delete(f"/tenders/{tender_id}/documents/{doc_to_delete_id}", headers=owner_headers)
+    assert del_res.status_code == 200
+    assert len(del_res.json()["documents"]) == 1
+
+@pytest.mark.asyncio
+async def test_rename_analysis_result(client: AsyncClient, setup_tender_with_analysis):
+    """Test renaming an analysis result."""
+    owner_headers, tender_id, analysis_id = setup_tender_with_analysis
+    
+    # Rename
+    patch_res = await client.patch(
+        f"/analysis-results/{analysis_id}",
+        json={"name": "New Analysis Name"},
+        headers=owner_headers
+    )
+    assert patch_res.status_code == 200
+    
+    # Verify
+    get_res = await client.get(f"/tenders/{tender_id}", headers=owner_headers)
+    updated_analysis = next(ar for ar in get_res.json()["analysis_results"] if ar["id"] == analysis_id)
+    assert updated_analysis["name"] == "New Analysis Name"

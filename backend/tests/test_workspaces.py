@@ -170,3 +170,24 @@ async def test_cannot_remove_workspace_owner(client: AsyncClient):
     
     assert response.status_code == 400
     assert "workspace owner cannot be removed" in response.json()["detail"].lower()
+
+@pytest.mark.asyncio
+async def test_update_workspace(client: AsyncClient):
+    """Test updating a workspace's name and description."""
+    owner_email = f"owner_update_{uuid.uuid4().hex[:8]}@example.com"
+    await create_user(client, owner_email)
+    token = await login_and_get_token(client, owner_email)
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Create workspace
+    ws_res = await client.post("/workspaces/", json={"name": "Old Name", "description": "Old Desc"}, headers=headers)
+    workspace_id = ws_res.json()["id"]
+    
+    # Update workspace
+    update_payload = {"name": "New Name", "description": "New Desc"}
+    update_res = await client.put(f"/workspaces/{workspace_id}", json=update_payload, headers=headers)
+    
+    assert update_res.status_code == 200
+    data = update_res.json()
+    assert data["name"] == "New Name"
+    assert data["description"] == "New Desc"
