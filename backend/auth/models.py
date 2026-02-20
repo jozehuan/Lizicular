@@ -27,11 +27,11 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=True)  # Nullable for OAuth users
-    full_name = Column(String(255),nullable=False)
+    full_name = Column(String(50),nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     oauth_provider = Column(String(50), nullable=True,index=True)
     oauth_id = Column(String(255), nullable=True,index=True)
-    profile_picture = Column(Text,nullable=True)
+    profile_picture = Column(Text, nullable=True, default="/avatar/blue_lizard.png")
     created_at = Column(DateTime, default=datetime.utcnow,nullable=False)
     updated_at = Column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow,nullable=False)
 
@@ -72,6 +72,8 @@ class AuditAction(str, enum.Enum):
     PASSWORD_CHANGE = "PASSWORD_CHANGE"
     OAUTH_LOGIN = "OAUTH_LOGIN"
     USER_VIEW = "USER_VIEW"
+    USER_UPDATE = "USER_UPDATE"
+    USER_DELETE = "USER_DELETE"
     
     # WORKSPACE
     WORKSPACE_CREATE = "WORKSPACE_CREATE"

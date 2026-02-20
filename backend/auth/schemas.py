@@ -10,7 +10,7 @@ Pydantic schemas for request/response validation.
 class UserBase(BaseModel):
     """Base schema with common user attributes."""
     email: EmailStr = Field(..., description="User's email address")
-    full_name: str = Field(..., min_length=1, max_length=255, description="User's full name")
+    full_name: str = Field(..., min_length=1, max_length=50, description="User's full name")
 
 
 class UserCreate(UserBase):
@@ -27,6 +27,12 @@ class UserLogin(BaseModel):
     """Schema for user login."""
     email: EmailStr = Field(..., description="User's email address")
     password: str = Field(..., description="User's password")
+
+
+class UserUpdate(BaseModel):
+    """Schema for updating user profile."""
+    full_name: str | None = Field(default=None, min_length=1, max_length=50)
+    profile_picture: str | None = Field(default=None, description="Path to profile picture")
 
 
 class UserResponse(UserBase):

@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
         id: userMeData.id,
         email: userMeData.email,
         name: userMeData.full_name, // Map full_name to name
+        picture: userMeData.profile_picture,
       },
     })
 

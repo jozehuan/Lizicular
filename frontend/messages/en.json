@@ -72,6 +72,23 @@
     "profile": "Profile",
     "signOut": "Sign out"
   },
+  "ProfilePage": {
+    "title": "User Profile",
+    "avatarTitle": "Choose your avatar",
+    "deleteTitle": "Danger Zone",
+    "deleteDescription": "If you delete your account, you will permanently lose all the information you own, including workspaces and tenders.",
+    "deleteButton": "Delete account",
+    "deleteConfirmTitle": "Are you absolutely sure?",
+    "deleteConfirmDescription": "This action cannot be undone. Your account and all associated personal and business data will be deleted.",
+    "deleteConfirmAction": "Yes, delete my account",
+    "deleteCancelAction": "Cancel",
+    "nameLabel": "Full name",
+    "saveButton": "Save changes",
+    "updateSuccess": "Profile updated successfully",
+    "updateError": "Failed to update profile",
+    "deleteSuccess": "Account deleted successfully",
+    "deleteError": "Failed to delete account"
+  },
   "HomePage": {
     "featuresTitle": "Everything you need to manage tenders efficiently",
     "docManagementTitle": "Document Management",

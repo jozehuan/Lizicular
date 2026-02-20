@@ -135,7 +135,13 @@ async def get_user_workspaces_with_tenders(
             continue
             
         workspace_members_response = [
-            WorkspaceMemberResponse(user_id=mem.user.id, email=mem.user.email, full_name=mem.user.full_name, role=mem.role.value)
+            WorkspaceMemberResponse(
+                user_id=mem.user.id, 
+                email=mem.user.email, 
+                full_name=mem.user.full_name, 
+                role=mem.role.value,
+                profile_picture=mem.user.profile_picture
+            )
             for mem in workspace.members
         ]
 
@@ -193,7 +199,13 @@ async def get_workspace(
         raise HTTPException(status_code=404, detail="Workspace not found")
         
     member_responses = [
-        WorkspaceMemberResponse(user_id=member.user.id, email=member.user.email, full_name=member.user.full_name, role=member.role.value)
+        WorkspaceMemberResponse(
+            user_id=member.user.id, 
+            email=member.user.email, 
+            full_name=member.user.full_name, 
+            role=member.role.value,
+            profile_picture=member.user.profile_picture
+        )
         for member in workspace.members
     ]
     
@@ -303,8 +315,11 @@ async def add_workspace_member(
     # Manually load the user relationship to return the full name
     await db.refresh(new_member, attribute_names=['user'])
     return WorkspaceMemberResponse(
-        user_id=new_member.user.id, email=new_member.user.email,
-        full_name=new_member.user.full_name, role=new_member.role.value
+        user_id=new_member.user.id, 
+        email=new_member.user.email,
+        full_name=new_member.user.full_name, 
+        role=new_member.role.value,
+        profile_picture=new_member.user.profile_picture
     )
 
 @router.get("/{workspace_id}/members", response_model=List[WorkspaceMemberResponse])
@@ -321,7 +336,13 @@ async def list_workspace_members(
     members = result.scalars().all()
     
     return [
-        WorkspaceMemberResponse(user_id=member.user.id, email=member.user.email, full_name=member.user.full_name, role=member.role.value)
+        WorkspaceMemberResponse(
+            user_id=member.user.id, 
+            email=member.user.email, 
+            full_name=member.user.full_name, 
+            role=member.role.value,
+            profile_picture=member.user.profile_picture
+        )
         for member in members
     ]
 
@@ -360,8 +381,11 @@ async def update_workspace_member(
     )
     
     return WorkspaceMemberResponse(
-        user_id=member_to_update.user.id, email=member_to_update.user.email,
-        full_name=member_to_update.user.full_name, role=member_to_update.role.value
+        user_id=member_to_update.user.id, 
+        email=member_to_update.user.email,
+        full_name=member_to_update.user.full_name, 
+        role=member_to_update.role.value,
+        profile_picture=member_to_update.user.profile_picture
     )
 
 @router.delete("/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

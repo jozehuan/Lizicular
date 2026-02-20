@@ -370,7 +370,7 @@ export default function TenderAnalysisPage({
               <div className="flex items-start justify-between">
                 <div className="flex-grow">
                   {isEditingTenderName && canEditTender ? (
-                    <Input value={newTenderName} onChange={(e) => setNewTenderName(e.target.value)} onBlur={handleUpdateTenderName} onKeyDown={(e) => { if (e.key === "Enter") handleUpdateTenderName(); if (e.key === "Escape") { setIsEditingTenderName(false); setNewTenderName(tenderDetails?.name || ""); } }} className="h-9 text-2xl font-semibold bg-background" />
+                    <Input value={newTenderName} onChange={(e) => setNewTenderName(e.target.value)} onBlur={handleUpdateTenderName} onKeyDown={(e) => { if (e.key === "Enter") handleUpdateTenderName(); if (e.key === "Escape") { setIsEditingTenderName(false); setNewTenderName(tenderDetails?.name || ""); } }} maxLength={255} className="h-9 text-2xl font-semibold bg-background" />
                   ) : (
                     <CardTitle className="text-2xl text-foreground flex items-baseline gap-2 cursor-pointer" onDoubleClick={() => canEditTender && setIsEditingTenderName(true)}>
                       {tenderDetails.name}
@@ -485,7 +485,7 @@ export default function TenderAnalysisPage({
             )}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="analysis-name" className="text-right">{t('generateAnalysisDialog.nameLabel')}</Label>
-              <Input id="analysis-name" value={newAnalysisName} onChange={(e) => setNewAnalysisName(e.target.value)} placeholder={t('generateAnalysisDialog.namePlaceholder')} className="col-span-3" />
+              <Input id="analysis-name" value={newAnalysisName} onChange={(e) => setNewAnalysisName(e.target.value)} placeholder={t('generateAnalysisDialog.namePlaceholder')} maxLength={255} className="col-span-3" />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="automation" className="text-right">{t('generateAnalysisDialog.automationLabel')}</Label>

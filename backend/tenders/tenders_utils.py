@@ -327,24 +327,34 @@ async def delete_tenders_by_workspace(
         db: Base de datos MongoDB
         workspace_id: UUID del workspace
     """
-    # 1. Usar una pipeline de agregación para obtener todos los IDs de documentos
-    #    de forma eficiente sin cargar las licitaciones en memoria.
+    # 1. Obtener todos los IDs de archivos y de análisis para limpiar las colecciones separadas
     pipeline = [
         {"$match": {"workspace_id": workspace_id}},
-        {"$unwind": "$documents"},
-        {"$project": {"_id": 0, "doc_id": "$documents.id"}}
+        {"$project": {
+            "doc_ids": "$documents.id",
+            "analysis_ids": "$analysis_results.id"
+        }}
     ]
     cursor = db.tenders.aggregate(pipeline)
     
-    document_ids_to_delete = [
-        ObjectId(doc["doc_id"]) async for doc in cursor if "doc_id" in doc
-    ]
+    file_ids_to_delete = []
+    analysis_ids_to_delete = []
+    
+    async for doc in cursor:
+        if "doc_ids" in doc and doc["doc_ids"]:
+            file_ids_to_delete.extend([ObjectId(did) for did in doc["doc_ids"]])
+        if "analysis_ids" in doc and doc["analysis_ids"]:
+            analysis_ids_to_delete.extend(doc["analysis_ids"])
             
-    # 2. Eliminar todos los documentos asociados de la colección 'tender_files'
-    if document_ids_to_delete:
-        await db.tender_files.delete_many({"_id": {"$in": document_ids_to_delete}})
+    # 2. Eliminar archivos binarios
+    if file_ids_to_delete:
+        await db.tender_files.delete_many({"_id": {"$in": file_ids_to_delete}})
         
-    # 3. Eliminar todas las licitaciones del workspace
+    # 3. Eliminar resultados de análisis detallados
+    if analysis_ids_to_delete:
+        await db.analysis_results.delete_many({"_id": {"$in": analysis_ids_to_delete}})
+        
+    # 4. Eliminar todas las licitaciones del workspace
     await db.tenders.delete_many({"workspace_id": workspace_id})
 
 

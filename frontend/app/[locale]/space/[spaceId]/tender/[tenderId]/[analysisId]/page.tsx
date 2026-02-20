@@ -448,7 +448,7 @@ export default function AnalysisResultPage({ params: paramsPromise }: { params: 
                   className="text-xl sm:text-2xl font-semibold h-10 w-full max-w-[300px]"
                   autoFocus
                   disabled={isUpdatingName}
-                  maxLength={20}
+                  maxLength={50}
                 />
                 {isUpdatingName && <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />}
               </div>
