@@ -152,3 +152,62 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 
 ---
 **Desarrollado para la automatización eficiente de licitaciones.**
+
+## Pruebas del Backend
+
+El backend cuenta con una suite de pruebas automatizadas utilizando `pytest`. Estas pruebas cubren la funcionalidad principal de la API, asegurando la correcta operación de los endpoints y la lógica de negocio.
+
+### `test_auth.py`
+
+Este módulo se encarga de probar todos los aspectos de la autenticación y gestión de usuarios.
+
+-   **test_signup_success**: Verifica que un usuario puede registrarse exitosamente.
+-   **test_login_generates_cookies**: Asegura que el login genera tanto el `access_token` como la cookie `refresh_token`.
+-   **test_refresh_token_flow**: Prueba el flujo completo de refresco de tokens.
+-   **test_logout_clears_cookie**: Verifica que el logout elimina la cookie de `refresh_token`.
+-   **test_access_token_type_security**: Asegura que un `refresh_token` no puede ser usado como `access_token`.
+-   **test_read_users_me_success**: Prueba que se puede acceder al perfil del usuario con un `access_token` válido.
+-   **test_token_blacklisting_on_logout**: Verifica que un `access_token` es invalidado después del logout.
+-   **test_refresh_token_rotation_security**: Asegura que un `refresh_token` no puede ser usado dos veces.
+-   **test_update_user_me**: Prueba la actualización del perfil del usuario.
+-   **test_delete_user_me**: Prueba la eliminación de la cuenta del usuario.
+
+### `test_automations.py`
+
+Este módulo prueba la creación y listado de automatismos.
+
+-   **test_create_automation**: Verifica que se puede crear un nuevo automatismo.
+-   **test_list_automations**: Asegura que se pueden listar los automatismos existentes.
+
+### `test_chatbot.py`
+
+Este módulo prueba la interacción con el chatbot.
+
+-   **test_chatbot_chat_success**: Verifica una interacción exitosa con el chatbot.
+-   **test_chatbot_chat_unauthorized**: Asegura que usuarios no autorizados no pueden acceder al chatbot.
+
+### `test_tenders.py`
+
+Este módulo prueba la gestión de licitaciones y sus análisis.
+
+-   **test_create_tender_with_editor_role**: Verifica que un usuario con rol `EDITOR` puede crear una licitación.
+-   **test_create_tender_with_viewer_role_fails**: Asegura que un usuario con rol `VIEWER` no puede crear una licitación.
+-   **test_list_and_get_tender**: Prueba el listado de licitaciones en un workspace y la obtención de una por su ID.
+-   **test_delete_tender_with_admin_role**: Verifica que un usuario con rol `ADMIN` puede eliminar una licitación.
+-   **test_add_and_delete_analysis_result**: Prueba que se puede añadir y eliminar un resultado de análisis de una licitación.
+-   **test_get_all_tenders_for_user_permissions**: Asegura que un usuario solo puede ver las licitaciones a las que tiene acceso.
+-   **test_patch_tender**: Prueba la actualización del nombre de una licitación.
+-   **test_add_and_delete_document**: Prueba que se puede añadir y eliminar un documento de una licitación.
+-   **test_rename_analysis_result**: Prueba que se puede renombrar un resultado de análisis.
+
+### `test_workspaces.py`
+
+Este módulo prueba la gestión de workspaces y sus miembros.
+
+-   **test_create_workspace**: Verifica que se puede crear un nuevo workspace.
+-   **test_get_user_workspaces**: Prueba el listado de todos los workspaces a los que un usuario pertenece.
+-   **test_add_member_to_workspace**: Verifica que el propietario de un workspace puede añadir un nuevo miembro.
+-   **test_non_admin_cannot_add_member**: Asegura que un usuario que no es administrador no puede añadir miembros.
+-   **test_owner_can_remove_member**: Verifica que el propietario de un workspace puede eliminar un miembro.
+-   **test_cannot_remove_workspace_owner**: Asegura que el propietario de un workspace no puede ser eliminado.
+-   **test_update_workspace**: Prueba la actualización del nombre y la descripción de un workspace.

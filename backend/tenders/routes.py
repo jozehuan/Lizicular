@@ -484,7 +484,7 @@ async def run_analysis_in_background(
     # This function's job is now complete. n8n will handle the rest.
 
 
-@router.post("/{tender_id}/generate_analysis", status_code=status.HTTP_202_ACCEPTED, response_model=GenerateAnalysisResponse, tags=["Analysis"])
+@router.post("/{tender_id}/generate_analysis", status_code=status.HTTP_200_OK, response_model=GenerateAnalysisResponse, tags=["Analysis"])
 async def api_generate_analysis(
     tender_id: str,
     analysis_request: GenerateAnalysisRequest,

@@ -1,4 +1,3 @@
-
 import pytest
 import pytest_asyncio
 from typing import AsyncGenerator
@@ -48,29 +47,34 @@ async def clear_redis():
     await client.aclose()
     yield
 
+@pytest_asyncio.fixture()
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Provides a transactional database session for tests.
+    """
+    connection = await engine.connect()
+    transaction = await connection.begin()
+    
+    async with TestingSessionLocal(bind=connection) as session:
+        yield session
+
+    if transaction.is_active:
+        await transaction.rollback()
+    await connection.close()
 
 @pytest_asyncio.fixture()
-async def client() -> AsyncGenerator[AsyncClient, None]:
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """
     Provides a client that handles the app's lifespan (startup/shutdown)
-    and runs tests in a transactional scope for the database.
+    and uses the transactional database session.
     """
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
     async with LifespanManager(app):
-        connection = await engine.connect()
-        transaction = await connection.begin()
-        
-        async with TestingSessionLocal(bind=connection) as session:
+        async with AsyncClient(app=app, base_url="http://test") as ac:
+            yield ac
 
-            def override_get_db():
-                yield session
-
-            app.dependency_overrides[get_db] = override_get_db
-
-            async with AsyncClient(app=app, base_url="http://test") as ac:
-                yield ac
-
-            app.dependency_overrides.clear()
-
-        if transaction.is_active:
-            await transaction.rollback()
-        await connection.close()
+    app.dependency_overrides.clear()
