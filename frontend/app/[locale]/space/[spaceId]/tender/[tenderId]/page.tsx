@@ -398,7 +398,7 @@ export default function TenderAnalysisPage({
           </Card>
           <div className="space-y-4">
             <div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-foreground">{t('analysisResultsTitle')}</h2>{canEditTender && <Button onClick={() => setShowGenerateDialog(true)}><Plus className="mr-2 h-4 w-4" />{t('generateAnalysisButton')}</Button>}</div>
-            <AnalysisDisplay analysisResults={analysisResults} onDelete={handleDeleteAnalysisClick} spaceId={spaceId} tenderId={tenderId}/>
+            <AnalysisDisplay analysisResults={analysisResults} onDelete={handleDeleteAnalysisClick} spaceId={spaceId} tenderId={tenderId} canDelete={canEditTender}/>
           </div>
         </main>
         <DashboardFooter />

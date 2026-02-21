@@ -43,6 +43,7 @@ interface AnalysisDisplayProps {
   onDelete: (analysisId: string) => void
   spaceId: string
   tenderId: string
+  canDelete: boolean
 }
 
 const getStatusIcon = (status: AnalysisResult["status"]) => {
@@ -143,7 +144,7 @@ const DynamicSummary = ({ data }: { data: any }) => {
     );
 };
 
-export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }: AnalysisDisplayProps) {
+export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId, canDelete }: AnalysisDisplayProps) {
   const t = useTranslations("AnalysisDisplay");
   const tStatus = useTranslations("Status"); // Add tStatus hook
 
@@ -238,21 +239,23 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId }
             </AccordionItem>
           </Accordion>
           
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={
-              normalizedStatus === 'pending' || 
-              normalizedStatus === 'processing'
-            }
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(result.id);
-            }}
-            className="shrink-0 text-muted-foreground hover:text-destructive mt-5 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={
+                normalizedStatus === 'pending' || 
+                normalizedStatus === 'processing'
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(result.id);
+              }}
+              className="shrink-0 text-muted-foreground hover:text-destructive mt-5 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       )})}
     </div>

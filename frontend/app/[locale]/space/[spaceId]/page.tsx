@@ -880,13 +880,15 @@ export default function SpaceDetailPage({
             <h2 className="text-xl font-semibold text-foreground">
               {t('tendersTitle')}
             </h2>
-            <Button
-              onClick={() => {setIsNewTenderOpen(true); setCreateTenderError(null);}}
-              className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              {t('newTenderButton')}
-            </Button>
+            {(currentMemberRole === "OWNER" || currentMemberRole === "ADMIN" || currentMemberRole === "EDITOR") && (
+              <Button
+                onClick={() => {setIsNewTenderOpen(true); setCreateTenderError(null);}}
+                className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {t('newTenderButton')}
+              </Button>
+            )}
           </div>
 
           {tenders.length === 0 ? (
@@ -970,19 +972,16 @@ export default function SpaceDetailPage({
                                                   )}
                                                 </AccordionContent>                      </AccordionItem>
                     </Accordion>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDeleteTenderClick(tender.id)}
-                      className={`
-                        shrink-0 text-muted-foreground hover:text-destructive mt-5
-                        ${(currentMemberRole === "OWNER" || currentMemberRole === "ADMIN") 
-                          ? "visible" 
-                          : "invisible pointer-events-none"}
-                      `}
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </Button>
+                    {(currentMemberRole === "OWNER" || currentMemberRole === "ADMIN") && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteTenderClick(tender.id)}
+                        className="shrink-0 text-muted-foreground hover:text-destructive mt-5"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </Button>
+                    )}
                   </div>
                 );
               })}
