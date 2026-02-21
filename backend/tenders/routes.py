@@ -16,7 +16,7 @@ from fastapi import Query
 from sqlalchemy.orm import selectinload
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from backend.auth.database import get_db
+from backend.auth.database import get_db, AsyncSessionLocal
 from backend.auth.auth_utils import get_current_active_user
 from backend.auth.audit_utils import log_tender_event, create_audit_log
 from backend.auth.models import AuditAction, AuditCategory, User
@@ -422,15 +422,23 @@ async def api_delete_analysis(
     
     result = await delete_analysis_result(mongo_db, tender_id, result_id)
     
-    await log_tender_event(
-        db=db,
-        action=AuditAction.TENDER_UPDATE,
-        tender_id=tender_id,
-        workspace_id=uuid.UUID(tender.workspace_id),
+    # Track the deletion of analysis results in the PostgreSQL audit log
+    await create_audit_log(
+        db,
+        category=AuditCategory.N8N,
+        action=AuditAction.TENDER_UPDATE, # Or you can add ANALYSIS_DELETE to AuditAction if preferred
         user_id=current_user.id,
-        request=request,
-        details=f"Deleted analysis result {result_id}"
+        workspace_id=uuid.UUID(tender.workspace_id),
+        resource_type="analysis",
+        resource_id=result_id,
+        payload={
+            "action": "delete_analysis_result",
+            "tender_id": tender_id,
+            "analysis_id": result_id
+        },
+        ip_address=request.client.host if request.client else "unknown"
     )
+
     return result
 
 async def run_analysis_in_background(
@@ -454,8 +462,7 @@ async def run_analysis_in_background(
         await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
         return
 
-    # 3. Trigger the external automation (n8n) and exit.
-    # The n8n automation is responsible for updating the result in the database.
+    # 3. Trigger the external automation (n8n)
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -465,22 +472,169 @@ async def run_analysis_in_background(
                     "analysis_id": analysis_id,
                     "analysis_name": analysis_placeholder.name
                 },
-                timeout=30.0, # A reasonable timeout to ensure the request is sent.
+                timeout=900.0, 
             )
             response.raise_for_status() 
-            print(f"Successfully triggered automation for analysis_id: {analysis_id}")
+            
+            # 4. Handle the success/error status from the automation
+            # Note: The actual analysis results are managed externally by n8n
+            automation_response = response.json()
+            status_received = automation_response.get("status", "success")
+            
+            # Calculate processing time
+            end_time = datetime.utcnow()
+            duration = (end_time - analysis_placeholder.pending_since).total_seconds() if analysis_placeholder.pending_since else 0.0
 
-    except (httpx.HTTPStatusError, httpx.RequestError) as e:
-        # If the call to n8n fails immediately, update the status to FAILED and notify the user.
-        error_message = f"Failed to trigger automation webhook: {e}"
-        print(f"ERROR: {error_message}")
-        tender = await get_tender_by_analysis_id(MongoDB.database, analysis_id)
-        if tender:
-            await update_analysis_result(MongoDB.database, tender.id, analysis_id, status=AnalysisStatus.FAILED, error_message=error_message)
-            await manager_instance.send_to_analysis_id({"status": "FAILED", "error": error_message}, analysis_id)
-        else:
-            # This case is for the race condition where the tender is deleted while we attempt to trigger the webhook.
-            print(f"Tender for analysis_id {analysis_id} was deleted. Skipping webhook failure update.")
+            if status_received == "success":
+                # Update status in the tenders collection
+                await update_analysis_result(
+                    MongoDB.database, 
+                    tender_id, 
+                    analysis_id, 
+                    status=AnalysisStatus.COMPLETED,
+                    processing_time=duration,
+                    clear_pending_since=True
+                )
+                
+                # Audit log for success
+                async with AsyncSessionLocal() as db_session:
+                    await create_audit_log(
+                        db_session,
+                        category=AuditCategory.N8N,
+                        action=AuditAction.WORKFLOW_COMPLETE,
+                        user_id=uuid.UUID(user_id),
+                        workspace_id=uuid.UUID(workspace_id),
+                        resource_type="analysis",
+                        resource_id=analysis_id,
+                        payload={"automation_id": automation_id, "name": analysis_placeholder.name, "duration": duration},
+                        ip_address=client_ip or "unknown"
+                    )
+
+                # Notify the frontend via WebSocket
+                await manager_instance.send_to_analysis_id({
+                    "status": "COMPLETED", 
+                    "analysis_id": analysis_id,
+                    "message": "Analysis completed successfully",
+                    "duration": duration
+                }, analysis_id)
+            else:
+                # Handle application-level error reported by the automation
+                error_detail = automation_response.get("detail", "Automation reported an unknown error.")
+                await update_analysis_result(
+                    MongoDB.database, 
+                    tender_id, 
+                    analysis_id, 
+                    status=AnalysisStatus.FAILED,
+                    error_message=error_detail,
+                    processing_time=duration,
+                    clear_pending_since=True
+                )
+
+                # Audit log for error reported by automation
+                async with AsyncSessionLocal() as db_session:
+                    await create_audit_log(
+                        db_session,
+                        category=AuditCategory.N8N,
+                        action=AuditAction.WORKFLOW_ERROR,
+                        user_id=uuid.UUID(user_id),
+                        workspace_id=uuid.UUID(workspace_id),
+                        resource_type="analysis",
+                        resource_id=analysis_id,
+                        payload={"automation_id": automation_id, "error": error_detail, "duration": duration},
+                        ip_address=client_ip or "unknown",
+                        success=False,
+                        error_message=error_detail
+                    )
+
+                await manager_instance.send_to_analysis_id({
+                    "status": "FAILED", 
+                    "analysis_id": analysis_id,
+                    "error": error_detail,
+                    "duration": duration
+                }, analysis_id)
+            
+            print(f"Finished processing automation response for analysis_id: {analysis_id} with status: {status_received}")
+
+    except httpx.TimeoutException:
+        error_message = "El análisis ha superado el tiempo máximo de espera (15 minutos). Por favor, contacta con soporte si el problema persiste."
+        print(f"TIMEOUT ERROR for analysis_id: {analysis_id}")
+        
+        # Calculate duration for timeout
+        duration = 900.0
+        
+        await update_analysis_result(
+            MongoDB.database, 
+            tender_id, 
+            analysis_id, 
+            status=AnalysisStatus.FAILED, 
+            error_message=error_message,
+            processing_time=duration,
+            clear_pending_since=True
+        )
+
+        # Audit log for timeout
+        async with AsyncSessionLocal() as db_session:
+            await create_audit_log(
+                db_session,
+                category=AuditCategory.N8N,
+                action=AuditAction.WORKFLOW_ERROR,
+                user_id=uuid.UUID(user_id),
+                workspace_id=uuid.UUID(workspace_id),
+                resource_type="analysis",
+                resource_id=analysis_id,
+                payload={"automation_id": automation_id, "error": "timeout", "duration": duration},
+                ip_address=client_ip or "unknown",
+                success=False,
+                error_message="Request timeout after 15 minutes"
+            )
+        
+        await manager_instance.send_to_analysis_id({
+            "status": "FAILED", 
+            "analysis_id": analysis_id,
+            "error": error_message,
+            "duration": duration
+        }, analysis_id)
+
+    except Exception as e:
+        # Handle transport or unexpected errors
+        error_message = "Ocurrió un error inesperado durante el procesamiento de la automatización."
+        print(f"ERROR for analysis_id {analysis_id}: {str(e)}")
+        
+        # Calculate duration if possible
+        duration = (datetime.utcnow() - analysis_placeholder.pending_since).total_seconds() if analysis_placeholder.pending_since else 0.0
+
+        await update_analysis_result(
+            MongoDB.database, 
+            tender_id, 
+            analysis_id, 
+            status=AnalysisStatus.FAILED, 
+            error_message=error_message,
+            processing_time=duration,
+            clear_pending_since=True
+        )
+
+        # Audit log for unexpected error
+        async with AsyncSessionLocal() as db_session:
+            await create_audit_log(
+                db_session,
+                category=AuditCategory.N8N,
+                action=AuditAction.WORKFLOW_ERROR,
+                user_id=uuid.UUID(user_id),
+                workspace_id=uuid.UUID(workspace_id),
+                resource_type="analysis",
+                resource_id=analysis_id,
+                payload={"automation_id": automation_id, "technical_error": str(e), "duration": duration},
+                ip_address=client_ip or "unknown",
+                success=False,
+                error_message=str(e)
+            )
+
+        await manager_instance.send_to_analysis_id({
+            "status": "FAILED", 
+            "analysis_id": analysis_id,
+            "error": error_message,
+            "duration": duration
+        }, analysis_id)
     
     # This function's job is now complete. n8n will handle the rest.
 
@@ -517,6 +671,23 @@ async def api_generate_analysis(
 
     if not placeholder:
         raise HTTPException(status_code=500, detail="Could not create analysis placeholder")
+
+    # Log the start of the analysis workflow in PostgreSQL
+    await create_audit_log(
+        db,
+        category=AuditCategory.N8N,
+        action=AuditAction.WORKFLOW_START,
+        user_id=current_user.id,
+        workspace_id=uuid.UUID(tender.workspace_id),
+        resource_type="analysis",
+        resource_id=placeholder.id,
+        payload={
+            "automation_id": analysis_request.automation_id,
+            "automation_name": automation.name,
+            "analysis_name": placeholder.name
+        },
+        ip_address=request.client.host if request.client else "unknown"
+    )
 
     background_tasks.add_task(
         run_analysis_in_background,

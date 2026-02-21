@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { AlertCircle, CheckCircle, Clock, FileJson, Loader2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTranslations } from "next-intl"
+import ElapsedTime from "./elapsed-time";
 
 // Interfaces based on backend/tenders/schemas.py
 interface AnalysisResult {
@@ -24,6 +25,7 @@ interface AnalysisResult {
   name: string
   procedure_name: string
   created_at: string
+  pending_since: string | null
   status: "pending" | "processing" | "completed" | "failed" | string
   data: any | null
   error_message?: string
@@ -195,7 +197,7 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId, 
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 pr-2">
+                  <div className="flex flex-col items-end gap-1 pr-2">
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -212,6 +214,9 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId, 
                         )}
                       </Tooltip>
                     </TooltipProvider>
+                    {(normalizedStatus === 'pending' || normalizedStatus === 'processing') && (
+                      <ElapsedTime since={result.pending_since || result.created_at} />
+                    )}
                   </div>
                 </div>
               </AccordionTrigger>
@@ -229,6 +234,7 @@ export function AnalysisDisplay({ analysisResults, onDelete, spaceId, tenderId, 
                     <AlertCircle className="h-8 w-8 mb-2" />
                     <p className="font-semibold">{t('status.failed')}</p>
                   </div>
+
                 ) : (
                   <div className="flex flex-col items-center justify-center p-8 text-muted-foreground">
                     <Clock className="h-8 w-8 mb-2" />

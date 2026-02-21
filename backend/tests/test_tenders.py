@@ -340,3 +340,68 @@ async def test_rename_analysis_result(client: AsyncClient, setup_tender_with_ana
     get_res = await client.get(f"/tenders/{tender_id}", headers=owner_headers)
     updated_analysis = next(ar for ar in get_res.json()["analysis_results"] if ar["id"] == analysis_id)
     assert updated_analysis["name"] == "New Analysis Name"
+
+@pytest.mark.asyncio
+async def test_generate_analysis_has_pending_since(client: AsyncClient, monkeypatch):
+    """Test that generating an analysis initializes the 'pending_since' field."""
+    from backend.automations.models import Automation
+    from backend.auth.database import get_db
+    from sqlalchemy import insert
+
+    owner_token, owner_data = await create_user_and_login(client, "owner_gen")
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    workspace_id = await create_workspace(client, owner_token)
+
+    # 1. Create a tender
+    tender_res = await client.post(
+        "/tenders/",
+        headers=owner_headers,
+        data={"workspace_id": workspace_id, "name": "Gen Tender"},
+        files={"files": ("file.pdf", b"content", "application/pdf")}
+    )
+    tender_id = tender_res.json()["id"]
+
+    # 2. Create a dummy automation in PostgreSQL
+    automation_id = str(uuid.uuid4())
+    async for db in get_db():
+        await db.execute(
+            insert(Automation).values(
+                id=uuid.UUID(automation_id),
+                name="Test Auto",
+                url="http://localhost/webhook",
+                owner_id=uuid.UUID(owner_data["id"])
+            )
+        )
+        await db.commit()
+        break
+
+    # 3. Mock the background task httpx call
+    import httpx
+    async def mock_post(*args, **kwargs):
+        class MockResponse:
+            def raise_for_status(self): pass
+        return MockResponse()
+    
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    # 4. Generate analysis
+    gen_res = await client.post(
+        f"/tenders/{tender_id}/generate_analysis",
+        json={"automation_id": automation_id, "name": "My Analysis"},
+        headers=owner_headers
+    )
+    assert gen_res.status_code == 200
+    
+    # 5. Verify pending_since in the tender response
+    get_res = await client.get(f"/tenders/{tender_id}", headers=owner_headers)
+    assert get_res.status_code == 200
+    tender_data = get_res.json()
+    assert len(tender_data["analysis_results"]) == 1
+    analysis = tender_data["analysis_results"][0]
+    assert analysis["status"] in ["pending", "processing"]
+    assert "pending_since" in analysis
+    assert analysis["pending_since"] is not None
+    
+    # Verify it's a valid ISO format date
+    from datetime import datetime
+    datetime.fromisoformat(analysis["pending_since"].replace('Z', '+00:00'))

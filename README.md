@@ -129,13 +129,13 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 
 ### **Análisis de Licitaciones (en `/tenders/routes.py`)**
 - `POST /tenders/{tender_id}/analysis`: Añade resultados de análisis a una licitación (Requiere rol EDITOR).
-- `POST /tenders/{tender_id}/generate_analysis`: Inicia la generación de un nuevo análisis de forma asíncrona (Requiere rol EDITOR).
+- `POST /tenders/{tender_id}/generate_analysis`: Inicia la generación de un nuevo análisis de forma asíncrona (Requiere rol EDITOR). Soporta un **timeout de 15 minutos** y cálculo automático de duración.
 - `GET /analysis-results/{analysis_id}`: Obtiene el detalle de un resultado de análisis específico (usado por el chatbot).
 - `PATCH /analysis-results/{analysis_id}`: Renombra un resultado de análisis específico (Requiere rol EDITOR).
 - `DELETE /tenders/{tender_id}/analysis/{result_id}`: Elimina un análisis específico.
 
 ### **WebSockets**
-- `ws /ws/analysis/{analysis_id}`: Conexión WebSocket para recibir actualizaciones en tiempo real sobre el estado y el resultado de un análisis.
+- `ws /ws/analysis/{analysis_id}`: Conexión WebSocket para recibir actualizaciones en tiempo real sobre el estado y el resultado de un análisis, incluyendo notificaciones de finalización y errores.
 
 
 ### **Utilidad (en `/main.py`)**
@@ -151,7 +151,7 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 4.  **Infraestructura de Pruebas:** Creación de una suite de tests automáticos con `pytest` y `httpx`, además de colecciones en `Postman` para validación manual del flujo de usuarios.
 5.  **Corrección de Dependencias:** Ajuste de versiones de seguridad (`bcrypt`) para asegurar compatibilidad en Windows y entornos asíncronos.
 6.  **Gestión de Workspaces:** Implementación completa de la creación, gestión y control de acceso (RBAC) para organizar equipos y licitaciones, con toda la lógica modularizada en `backend/workspaces/`.
-7.  **Sistema de Auditoría de Grado Empresarial:** Motor de logs universal con soporte para categorías (Auth, Workspace, Tender, etc.) y utilidades de consulta avanzada, detección de amenazas y exportación para cumplimiento.
+7.  **Sistema de Auditoría de Grado Empresarial:** Motor de logs universal con soporte para categorías (Auth, Workspace, Tender, etc.) y utilidades de consulta avanzada, detección de amenazas y exportación para cumplimiento. Se ha extendido para cubrir todo el ciclo de vida de los automatismos (`WORKFLOW_START`, `COMPLETE`, `ERROR`).
 8.  **Generación de Análisis Asíncrono:** Se ha implementado un flujo de generación de análisis asíncrono con notificaciones en tiempo real vía WebSockets. El frontend puede disparar un análisis y, en lugar de esperar, recibe una respuesta inmediata. El estado y el resultado final de la tarea son enviados al frontend a través de un WebSocket, eliminando la necesidad de polling.
 9.  **Gestión de Automatismos:** Se ha añadido una tabla `autos` en PostgreSQL y endpoints en `/automations` para registrar y gestionar los automatismos externos (ej. webhooks de n8n) que pueden ser invocados.
 10. **Modelos de Datos Extensibles:** Los esquemas de Pydantic para los resultados de análisis se han actualizado para soportar estructuras de datos más complejas y anidadas, incluyendo un nuevo JSON `estimacion`.
@@ -160,6 +160,8 @@ Actualmente, el proyecto se encuentra en su fase inicial de infraestructura y ba
 13. **Optimización de Interfaz y Carga (Frontend):** Se ha refinado la experiencia de usuario en la página de licitaciones. El sistema ahora realiza refrescos silenciosos en segundo plano al volver a la pestaña, sin interrumpir con pantallas de carga globales. Además, la obtención de resultados de análisis se ha hecho secuencial y exhaustiva, garantizando la carga completa de datos detallados desde la colección de MongoDB para todos los análisis finalizados.
 14. **Gestión de Perfil y Validación Multi-Nivel:** Implementación de una página de perfil para personalización de avatares y nombres. Se han establecido restricciones de longitud estrictas en todos los elementos (Usuarios, Workspaces, Licitaciones) validadas tanto en base de datos como en backend y frontend para garantizar la integridad total de la información.
 15. **Borrado Seguro de Usuario:** Sistema de eliminación de cuenta que orquesta la limpieza de datos en PostgreSQL y MongoDB, asegurando que no queden rastros de información personal o de negocio del usuario al retirarse de la plataforma.
+16. **Cronómetro Digital y Control de Tiempo:** Se ha integrado un cronómetro digital en tiempo real para el seguimiento de análisis pendientes o en curso. El backend calcula ahora el tiempo exacto de procesamiento y mantiene la integridad de los datos en MongoDB limpiando marcas temporales obsoletas tras la finalización.
+17. **Ciclo de Automatización de Larga Duración:** Soporte para procesos pesados mediante un sistema de espera de 15 minutos con gestión específica de timeouts y auditoría detallada en PostgreSQL.
 
 ---
 **Desarrollado para la automatización eficiente de licitaciones.**

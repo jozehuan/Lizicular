@@ -76,6 +76,7 @@ interface AnalysisResult {
   name: string
   procedure_name: string
   created_at: string
+  pending_since: string | null
   status: "pending" | "processing" | "completed" | "failed" | string
   data: any // Keeping this generic for now, as AnalysisDisplay handles the details
   error_message?: string
@@ -143,19 +144,6 @@ export default function TenderAnalysisPage({
           });
           if (analysisRes.ok) {
             const fullAnalysisData = await analysisRes.json();
-            // Merge the fetched data (which might be the flat object or nested)
-            // Ideally backend returns the full object. We put it in 'data' prop if our interface expects it,
-            // or merge it. Based on previous fixes, we expect 'data' property.
-            // Let's assume the endpoint returns the FULL document including 'data' field or the fields themselves.
-            // Adjusting based on previous knowledge: The endpoint returns the full document.
-            // If the document has a 'data' field, we use it. If it's flat, we might need to adjust.
-            // However, the interface AnalysisResult has `data: any`.
-            // Let's assume the fetch returns the object that SHOULD go into `data`.
-            // Wait, previous backend fix made GET /analysis-results/:id return the full document from analysis_results collection.
-            // That document DOES NOT necessarily have a 'data' field wrapping everything if it's dynamic.
-            // It has 'info', 'requisitos', etc at top level.
-            // But our frontend interface and AnalysisDisplay expect `result.data` to hold this content.
-            // So we should assign the whole response to `data`.
             patchedResults.push({ ...result, data: fullAnalysisData });
           } else {
             patchedResults.push(result);
@@ -181,10 +169,7 @@ export default function TenderAnalysisPage({
 
       const tenderData: TenderData = await tenderRes.json();
       const results = tenderData.analysis_results || [];
-      
-      // Use the sequential patcher
       const patchedResults = await patchCompletedResults(results);
-      
       setAnalysisResults(patchedResults);
     } catch (e) {
       console.error("Failed to refresh analysis results:", e);

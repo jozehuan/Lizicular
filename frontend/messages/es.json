@@ -247,6 +247,12 @@
       "processing": "Análisis en progreso, por favor espera...",
       "failed": "El análisis falló",
       "pending": "El análisis está pendiente y comenzará pronto."
+    },
+    "pendingFor": "Pendiente durante",
+    "time": {
+      "seconds": "{count, plural, one {# segundo} other {# segundos}}",
+      "minutes": "{count, plural, one {# minuto} other {# minutos}}",
+      "hours": "{count, plural, one {# hora} other {# horas}}"
     }
   },
   "ChatbotWidget": {

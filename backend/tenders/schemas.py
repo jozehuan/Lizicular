@@ -344,6 +344,7 @@ class AnalysisResult(BaseModel):
     
     processing_time: Optional[float] = Field(None, ge=0, description="Tiempo de procesamiento en segundos")
     status: AnalysisStatus = Field(default=AnalysisStatus.PENDING)
+    pending_since: Optional[datetime] = Field(None, description="Timestamp from when the analysis is in PENDING state")
     
     error_message: Optional[str] = None
     
@@ -368,6 +369,7 @@ class AnalysisResultSummary(BaseModel):
     name: str = Field(..., description="Nombre del resultado del análisis")
     status: AnalysisStatus = Field(..., description="Estado actual del análisis")
     created_at: datetime = Field(..., description="Fecha de creación del análisis")
+    pending_since: Optional[datetime] = Field(None, description="Timestamp from when the analysis is in PENDING state")
 
     model_config = ConfigDict(from_attributes=True)
 
