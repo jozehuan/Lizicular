@@ -60,7 +60,6 @@ import { format } from "date-fns"
 import { useAuth } from "@/lib/auth-context"
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import { DashboardFooter } from "@/components/dashboard/footer"
-import { ChatbotWidget } from "@/components/dashboard/chatbot-widget"
 import { AnalysisDisplay } from "@/components/tender/analysis-display"
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
@@ -402,7 +401,6 @@ export default function TenderAnalysisPage({
           </div>
         </main>
         <DashboardFooter />
-        <ChatbotWidget />
       </div>
       <Dialog open={showAddFileDialog} onOpenChange={setShowAddFileDialog}>
         <DialogContent className="rounded-xl border-border bg-card max-w-lg">

@@ -8,6 +8,7 @@ import { AuthProvider } from '@/lib/auth-context'
 import { ChatbotProvider } from "@/lib/chatbot-context"
 import { Header } from '@/components/layout/header'
 import { Toaster } from "@/components/ui/sonner"
+import { ConditionalChatbot } from "@/components/layout/conditional-chatbot"
 import '../globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -43,6 +44,7 @@ export default async function RootLayout({
             <ChatbotProvider>
               <Header />
               {children}
+              <ConditionalChatbot />
               <Toaster />
             </ChatbotProvider>
           </NextIntlClientProvider>

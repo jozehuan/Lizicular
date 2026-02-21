@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback, useRef, use } from "react"
 import Link from "next/link"
 import { format } from "date-fns"
 import { DashboardFooter } from "@/components/dashboard/footer"
-import { ChatbotWidget } from "@/components/dashboard/chatbot-widget"
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import {
   Breadcrumb,
@@ -999,7 +998,6 @@ export default function SpaceDetailPage({
       />
 
       <DashboardFooter />
-      <ChatbotWidget />
 
       {/* Delete Tender Confirmation Dialog */}
       <AlertDialog open={showDeleteTenderConfirm} onOpenChange={setShowDeleteTenderConfirm}>

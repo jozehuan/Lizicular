@@ -22,7 +22,6 @@ import { useTranslations } from "next-intl"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DashboardFooter } from "@/components/dashboard/footer"
-import { ChatbotWidget } from "@/components/dashboard/chatbot-widget"
 
 const BACKEND_URL = "/api/backend"; 
 
@@ -524,7 +523,6 @@ export default function AnalysisResultPage({ params: paramsPromise }: { params: 
         </div>
       </main>
       <DashboardFooter />
-      <ChatbotWidget />
     </div>
   );
 }

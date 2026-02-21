@@ -56,12 +56,18 @@ class ReviewAgent(BaseAgent):
             try:
                 response = await client.request(method, f"{BACKEND_URL}{endpoint}", headers=headers)
                 response.raise_for_status()
-                return response.json()
+                if response.status_code == 204:
+                    return {}
+                try:
+                    return response.json()
+                except ValueError:
+                    print(f"Error decoding JSON from response: {response.text}")
+                    return {"error": "Invalid JSON response", "raw": response.text}
             except httpx.HTTPStatusError as e:
                 print(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
                 raise
             except Exception as e:
-                print(f"An unexpected error occurred: {e}")
+                print(f"An unexpected error occurred in _make_request: {e}")
                 raise
 
     async def list_my_workspaces(self) -> str:
@@ -156,20 +162,7 @@ class ReviewAgent(BaseAgent):
             output += f"- **Name:** {result.get('name', 'N/A')}\n"
             output += f"- **Status:** {result.get('status', 'N/A')}\n"
             
-            if result.get('status', '').lower() == 'completed':
-                analysis_id = result.get('id')
-                if analysis_id:
-                    try:
-                        full_data = await self._make_request("GET", f"/analysis-results/{analysis_id}")
-                        output += "- **Result Data:**\n"
-                        data = full_data.get('data')
-                        if not data:
-                            output += "  - No detailed data available.\n"
-                        else:
-                            output += self._format_any_data(data, level=1)
-                    except Exception as e:
-                        output += "  - Could not retrieve full analysis data.\n"
-            elif result.get('status', '').lower() == 'failed':
+            if result.get('status', '').lower() == 'failed':
                 output += f"- **Error:** {result.get('error_message', 'No error details provided.')}\n"
         return output
 
@@ -201,19 +194,29 @@ class ReviewAgent(BaseAgent):
 
     def _format_single_analysis_result(self, result_data: dict) -> str:
         """Formats a single, detailed analysis result into a human-readable string."""
+        status = result_data.get('status', 'N/A')
         output = f"Details for analysis '**{result_data.get('name', 'N/A')}**':\n"
-        output += f"- **Status:** {result_data.get('status', 'N/A')}\n"
+        output += f"- **Status:** {status}\n"
         output += f"- **Procedure:** {result_data.get('procedure_name', 'N/A')}\n"
         output += f"- **Created At:** {result_data.get('created_at', 'N/A')}\n"
 
-        if result_data.get('status', '').lower() == 'completed':
+        if str(status).lower() == 'completed':
             output += "\n- **Result Data:**\n"
-            data = result_data.get('data')
-            if not data:
+            # Prefer 'data' key if exists, otherwise use the whole object excluding metadata
+            data_content = result_data.get('data')
+            
+            # If data is directly in the object (no 'data' wrapper), or 'data' is basically everything
+            if not data_content or data_content == result_data: 
+                 # Filter metadata keys to avoid recursion loop or showing raw IDs
+                metadata_keys = {'_id', 'id', 'name', 'status', 'procedure_name', 'procedure_id', 'created_at', 'created_by', 'tender_id', 'processing_time', 'error_message', 'data'}
+                data_content = {k: v for k, v in result_data.items() if k not in metadata_keys}
+
+            if not data_content:
                 output += "  - No detailed data available.\n"
             else:
-                output += self._format_any_data(data, level=1)
-        elif result_data.get('status', '').lower() == 'failed':
+                output += self._format_any_data(data_content, level=1)
+        
+        elif str(status).lower() == 'failed':
             output += f"- **Error:** {result_data.get('error_message', 'No error details provided.')}\n"
         else:
             output += "This analysis is not yet complete. Only full data for 'COMPLETED' analyses can be shown.\n"
@@ -224,24 +227,54 @@ class ReviewAgent(BaseAgent):
         """
         Finds a specific analysis result by name and shows its detailed information.
         """
-        matching_results = await self._make_request("GET", f"/analysis-results/all_for_user?name={analysis_name}")
+        print(f"Searching for analysis: {analysis_name}")
+        try:
+            matching_results = await self._make_request("GET", f"/analysis-results/all_for_user?name={analysis_name}")
+        except Exception as e:
+            print(f"Error searching for analysis: {e}")
+            return f"Error searching for analysis '{analysis_name}': {str(e)}"
         
         if not matching_results:
             return f"No analysis result found with the name '{analysis_name}'."
         
         if len(matching_results) > 1:
-            id_list = ", ".join([f"'{r['name']}' (ID: {r['id']})" for r in matching_results])
+            id_list = ", ".join([f"'{r.get('name')}' (ID: {r.get('id')})" for r in matching_results])
             return f"Multiple analysis results found. Please be more specific. Found: {id_list}"
         
         analysis_summary = matching_results[0]
-        analysis_id = analysis_summary['id']
+        analysis_id = analysis_summary.get('id')
+        status = analysis_summary.get('status', '').lower()
         
-        if analysis_summary.get('status', '').lower() == 'completed':
+        print(f"Found summary for {analysis_name}: ID={analysis_id}, Status={status}")
+
+        if status == 'completed':
             try:
                 full_details = await self._make_request("GET", f"/analysis-results/{analysis_id}")
-                return self._format_single_analysis_result(full_details)
-            except Exception:
-                return f"Found completed analysis '{analysis_name}', but could not retrieve its full details."
+                
+                if not isinstance(full_details, dict):
+                     # Fallback if the details endpoint returns something unexpected
+                     print(f"Warning: Full details for {analysis_id} is not a dict: {type(full_details)}")
+                     return self._format_single_analysis_result(analysis_summary)
+
+                # Create a robust combined object
+                combined_data = full_details.copy()
+                
+                # Safe access to summary fields
+                summary_status = analysis_summary.get('status', 'Completed')
+                summary_proc = analysis_summary.get('procedure_name', 'N/A')
+                summary_name = analysis_summary.get('name', 'N/A')
+                summary_created = analysis_summary.get('created_at', 'N/A')
+
+                # Ensure metadata from summary overwrites or supplements details
+                combined_data['status'] = summary_status
+                combined_data['procedure_name'] = summary_proc if summary_proc != 'N/A' else full_details.get('procedure_name', 'N/A')
+                combined_data['name'] = summary_name if summary_name != 'N/A' else full_details.get('name', 'N/A')
+                combined_data['created_at'] = summary_created if summary_created != 'N/A' else full_details.get('created_at', 'N/A')
+                
+                return self._format_single_analysis_result(combined_data)
+            except Exception as e:
+                print(f"Error fetching full details for {analysis_id}: {e}")
+                return f"Found completed analysis '{analysis_name}', but an error occurred retrieving its full details: {str(e)}"
         else:
             return self._format_single_analysis_result(analysis_summary)
 
