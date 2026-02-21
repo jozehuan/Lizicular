@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { X, Send, MessageCircle, Loader2, Trash2 } from "lucide-react"
 import { useChatbot } from "@/lib/chatbot-context"
+import { useAuth } from "@/lib/auth-context"
 import ReactMarkdown from 'react-markdown'
 
 export function ChatbotWidget() {
@@ -14,6 +15,7 @@ export function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false)
   const [inputValue, setInputValue] = useState("")
   const { messages, isReplying, sendMessage, clearHistory } = useChatbot()
+  const { user } = useAuth()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -37,6 +39,8 @@ export function ChatbotWidget() {
       handleSendMessage()
     }
   }
+
+  if (!user) return null
 
   return (
     <div className="fixed bottom-6 right-6 z-50">

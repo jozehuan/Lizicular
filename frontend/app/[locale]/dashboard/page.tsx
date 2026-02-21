@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react" // Import useEffect
 import { DashboardFooter } from "@/components/dashboard/footer"
-import { ChatbotWidget } from "@/components/dashboard/chatbot-widget"
 import { CreateSpaceForm } from "@/components/dashboard/create-space-form"
 import { SpacesList } from "@/components/dashboard/spaces-list"
 import { ProtectedRoute } from "@/components/auth/protected-route"
@@ -211,7 +210,6 @@ export default function DashboardPage() {
       </main>
 
       <DashboardFooter />
-      <ChatbotWidget />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>

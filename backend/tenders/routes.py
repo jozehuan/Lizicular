@@ -5,6 +5,7 @@ from sqlalchemy import select
 from typing import List, Any, Dict
 import uuid
 import asyncio
+from datetime import datetime, date
 from urllib.parse import quote
 from starlette.responses import StreamingResponse
 import io
@@ -580,6 +581,8 @@ async def api_get_all_analysis_results_for_user(
     
     return list(found_analysis_results.values())
 
+import json
+
 @analysis_router.get("/{analysis_id}")
 async def get_single_analysis_result(
     analysis_id: str,
@@ -598,10 +601,18 @@ async def get_single_analysis_result(
     if not analysis_doc:
         raise HTTPException(status_code=404, detail="Analysis result not found in its collection")
 
-    if "_id" in analysis_doc:
-        analysis_doc["_id"] = str(analysis_doc["_id"])
-    
-    return JSONResponse(content=analysis_doc)
+    # Custom serializer for ObjectId
+    def json_serial(obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        raise TypeError (f"Type {type(obj)} not serializable")
+
+    # We manually dump to string with our encoder, then parse back to dict to use JSONResponse
+    # Alternatively, we could just return Response with media_type="application/json"
+    json_str = json.dumps(analysis_doc, default=json_serial)
+    return JSONResponse(content=json.loads(json_str))
 
 
 @analysis_router.patch("/{analysis_id}", response_model=AnalysisResult)
