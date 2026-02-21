@@ -41,10 +41,21 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - **Extensibilidad:** El sistema de `AgentFactory` y `EngineAIFactory` permite añadir nuevos agentes y motores de LLM (actualmente Azure OpenAI) de forma modular.
 - **Observabilidad y Auditoría:** Todas las conversaciones se trazan con `Langfuse` para depuración y se registran en la tabla de `audit_logs` de PostgreSQL para un seguimiento completo.
 
-### **Pruebas y Calidad**
-- **Pytest:** Suite de pruebas unitarias y de integración asíncronas.
-- **Postman:** Pruebas manuales y documentación de la API.
-- **Httpx:** Cliente HTTP para pruebas de integración de FastAPI.
+### **Infraestructura de Pruebas (Frontend & Backend)**
+- **Backend (Pytest):** Suite exhaustiva de pruebas unitarias y de integración para validar la lógica de negocio, seguridad y endpoints.
+  - `test_auth.py`: Autenticación, gestión de sesiones y perfil de usuario.
+  - `test_workspaces.py`: CRUD de espacios y control de acceso (RBAC).
+  - `test_tenders.py`: Gestión de licitaciones, documentos y permisos.
+  - `test_automations.py`: Creación y listado de automatismos.
+  - `test_chatbot.py`: Interacción segura con el agente conversacional.
+- **Frontend (Playwright):** Pruebas End-to-End (E2E) que simulan el comportamiento real del usuario en el navegador.
+  - `auth.spec.ts`: Flujos de registro e inicio de sesión.
+  - `dashboard.spec.ts`: Navegación y creación de espacios.
+  - `profile.spec.ts`: Edición de perfil y avatar.
+  - `tenders.spec.ts`: Creación de licitaciones.
+- **Herramientas Complementarias:**
+  - **Postman:** Colecciones para validación manual y documentación interactiva de la API. Permite probar endpoints individualmente y compartir ejemplos de peticiones.
+  - **Httpx:** Cliente HTTP asíncrono de alto rendimiento utilizado internamente por la suite de Pytest para realizar peticiones de integración contra la API de FastAPI.
 
 ### **Base de Datos NoSQL (MongoDB)**
 - **`tenders`**: Colección central con metadatos de licitaciones y **resúmenes ligeros** de sus documentos y análisis (sin datos pesados).

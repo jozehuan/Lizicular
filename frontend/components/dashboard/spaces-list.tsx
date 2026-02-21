@@ -142,14 +142,16 @@ export function SpacesList({ spaces, onDeleteSpace }: SpacesListProps) {
             </AccordionItem>
           </Accordion>
           
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onDeleteSpace(space.id)}
-            className="shrink-0 text-muted-foreground hover:text-destructive mt-5"
-          >
-            <Trash2 className="h-5 w-5" />
-          </Button>
+          {space.user_role === "OWNER" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDeleteSpace(space.id)}
+              className="shrink-0 text-muted-foreground hover:text-destructive mt-5"
+            >
+              <Trash2 className="h-5 w-5" />
+            </Button>
+          )}
         </div>
       ))}
     </div>

@@ -72,14 +72,14 @@ La persistencia de los datos de negocio se gestiona en MongoDB a través de tres
 - `docker-compose.yml`: Orquestación de servicios locales (PostgreSQL, Redis, MongoDB).
 - `/frontend`: Aplicación Next.js (App Router).
   - `/app`: Rutas de la aplicación y componentes principales.
-    - `/[locale]`: Contiene todas las rutas internacionalizadas.
-      - `/dashboard`: Página principal del usuario.
-      - `/profile`: Perfil de usuario y ajustes.
-      - `/space/[spaceId]`: Vista detallada de un workspace.
-      - `/space/[spaceId]/tender/[tenderId]`: Vista de una licitación y sus análisis.
-    - `/api`: Rutas de API que actúan como Backend-for-Frontend (BFF).
-      - `/auth`: Endpoints de proxy para autenticación (login, refresh, logout).
+  - `/e2e`: Tests End-to-End (E2E) con Playwright.
+    - `auth.spec.ts`: Pruebas de registro, login y logout.
+    - `dashboard.spec.ts`: Pruebas de gestión de espacios de trabajo.
+    - `profile.spec.ts`: Pruebas de edición de perfil y avatar.
+    - `tenders.spec.ts`: Pruebas de creación de licitaciones y subida de documentos.
+  - `playwright.config.ts`: Configuración global para los tests E2E.
   - `/components`: Componentes de React reutilizables (UI, layout, etc.).
+    - `/[locale]`: Contiene todas las rutas internacionalizadas.
   - `/lib`: Lógica principal del lado del cliente (contexto de autenticación, hook `useApi`, etc.).
   - `/hooks`: Hooks de React personalizados.
   - `next.config.mjs`: Configuración de Next.js, incluyendo el proxy de reescritura para la API.
@@ -282,3 +282,17 @@ Este módulo prueba la gestión de workspaces y sus miembros.
 -   **test_owner_can_remove_member**: Verifica que el propietario de un workspace puede eliminar un miembro.
 -   **test_cannot_remove_workspace_owner**: Asegura que el propietario de un workspace no puede ser eliminado.
 -   **test_update_workspace**: Prueba la actualización del nombre y la descripción de un workspace.
+
+### `tests_e2e (Frontend)`
+
+Pruebas End-to-End implementadas con **Playwright** para validar los flujos críticos de usuario desde el navegador. Se ejecutan con `pnpm test:e2e`.
+
+-   **auth.spec.ts**: Valida el ciclo completo de autenticación (registro, login, logout).
+-   **dashboard.spec.ts**: Prueba la creación de espacios de trabajo y la navegación a sus detalles.
+-   **profile.spec.ts**: Verifica la edición del perfil de usuario (nombre, avatar) y la inmutabilidad del email.
+-   **tenders.spec.ts**: Comprueba la creación de nuevas licitaciones y la subida de archivos (simulando un PDF).
+
+### `Herramientas Complementarias`
+
+-   **Postman:** Utilizado para la exploración manual de la API, depuración de endpoints y generación de documentación viva.
+-   **Httpx:** Cliente HTTP asíncrono que potencia los tests de integración de Pytest, permitiendo simular peticiones concurrentes y validar el comportamiento asíncrono de FastAPI.
