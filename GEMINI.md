@@ -121,6 +121,15 @@ El módulo de autenticación y seguridad es completamente funcional y ha sido ex
     - **Actualización de Datos:** Modificar su nombre completo (limitado a 30 caracteres). El email permanece protegido como identificador único.
     - **Eliminación Segura de Cuenta:** Un flujo destructivo que elimina al usuario de PostgreSQL y realiza una limpieza exhaustiva de toda su información en propiedad (workspaces, licitaciones, archivos y análisis) en MongoDB antes de cerrar la sesión.
 20. **Restricciones de Longitud y Validación:** Se han aplicado límites de caracteres estrictos en todos los niveles (DB, Backend y Frontend) para asegurar la integridad de los datos y la coherencia de la interfaz.
+21. **Cronómetro de Análisis en Tiempo Real:** Se ha implementado un cronómetro digital (`MM:SS`) en el frontend que cuenta el tiempo exacto transcurrido desde que se inicia un automatismo. Este contador es visible directamente en la cabecera del análisis para estados `PENDING` y `PROCESSING`.
+22. **Ciclo de Vida de Automatización Robusto:**
+    *   **Timeout Extendido:** Las llamadas a webhooks externos (n8n) ahora tienen un tiempo de espera de **15 minutos (900 segundos)** para soportar análisis pesados.
+    *   **Cálculo de Duración:** Al finalizar (éxito, error o timeout), el sistema calcula automáticamente el `processing_time` en segundos y limpia el campo `pending_since`.
+    *   **Manejo de Respuestas:** El backend procesa respuestas estructuradas del webhook (`success` o `error`) y gestiona específicamente las excepciones de timeout para informar al usuario.
+23. **Auditoría Universal Extendida:** Se ha completado la trazabilidad en PostgreSQL para el módulo de automatización:
+    *   **Gestión:** `AUTOMATION_CREATE` y `AUTOMATION_DELETE`.
+    *   **Ejecución:** `WORKFLOW_START`, `WORKFLOW_COMPLETE` y `WORKFLOW_ERROR`.
+    *   **Contexto:** Los logs incluyen ahora la duración del proceso, IDs de recursos y detalles de errores técnicos o de aplicación.
 
 ## Arquitectura de Autenticación ("Gold Standard")
 

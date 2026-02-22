@@ -683,7 +683,7 @@ async def create_placeholder_analysis(
         procedure_name=automation_name,
         created_by=user_id,
         status=AnalysisStatus.PENDING,
-        data=None,
+        pending_since=datetime.utcnow(),
     )
     
     result = await db.tenders.find_one_and_update(
@@ -706,7 +706,9 @@ async def update_analysis_result(
     analysis_id: str,
     status: str,
     data: Optional[Dict[str, Any]] = None,
-    error_message: Optional[str] = None
+    error_message: Optional[str] = None,
+    processing_time: Optional[float] = None,
+    clear_pending_since: bool = False
 ) -> bool:
     """
     Updates an analysis result in a tender.
@@ -718,6 +720,8 @@ async def update_analysis_result(
         status: The new status
         data: The analysis data
         error_message: An error message if the analysis failed
+        processing_time: Time spent processing in seconds
+        clear_pending_since: Whether to set pending_since to null
         
     Returns:
         True if the analysis result was updated, False otherwise.
@@ -730,6 +734,10 @@ async def update_analysis_result(
         update_fields["analysis_results.$.data"] = data
     if error_message:
         update_fields["analysis_results.$.error_message"] = error_message
+    if processing_time is not None:
+        update_fields["analysis_results.$.processing_time"] = processing_time
+    if clear_pending_since:
+        update_fields["analysis_results.$.pending_since"] = None
     
     result = await db.tenders.update_one(
         {"_id": ObjectId(tender_id), "analysis_results.id": analysis_id},
