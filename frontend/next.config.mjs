@@ -1,11 +1,9 @@
 import createNextIntlPlugin from 'next-intl/plugin';
-
-const withNextIntl = createNextIntlPlugin(
-  './i18n.ts' // Ruta a tu archivo de configuración
-);
+const withNextIntl = createNextIntlPlugin('./i18n.ts');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -21,5 +19,4 @@ const nextConfig = {
     ]
   },
 }
-
 export default withNextIntl(nextConfig);

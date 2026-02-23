@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { getStatusBadgeClasses } from "@/lib/style-utils"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 const HexagonIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg

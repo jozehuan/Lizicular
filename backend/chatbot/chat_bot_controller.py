@@ -29,9 +29,27 @@ async def chat_bot_controller(messages: List[Message], token: str = None):
 
     bot_manager = BotManager(bot_settings)
     question = messages[-1]
-    langfuse = get_client()
+    
+    # Langfuse configuration check
+    import os
+    langfuse_enabled = os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")
+    langfuse = get_client() if langfuse_enabled else None
+    
     timestamp = datetime.now().isoformat()
 
+    # Prepare chat history, keeping the last 2 messages
+    history_send = [
+        ChatMessage(role=i.role.value, content=i.content) for i in messages[:-1]
+    ] if len(messages) > 1 else []
+
+    if len(history_send) > 2:
+        history_send = history_send[-2:]
+
+    if not langfuse:
+        # Simple path without Langfuse tracing
+        return await bot_manager.run_agent(question.content, chat_history=history_send)
+
+    # Path with Langfuse observation
     # Propagate attributes for Langfuse observation
     with propagate_attributes(
         metadata={
@@ -40,14 +58,6 @@ async def chat_bot_controller(messages: List[Message], token: str = None):
             "total_messages": len(messages),
         }
     ):
-        # Prepare chat history, keeping the last 2 messages
-        history_send = [
-            ChatMessage(role=i.role.value, content=i.content) for i in messages[:-1]
-        ] if len(messages) > 1 else []
-
-        if len(history_send) > 2:
-            history_send = history_send[-2:]
-
         # Start a generation observation in Langfuse
         with langfuse.start_as_current_observation(
             as_type="generation",

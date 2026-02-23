@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog" // Import AlertDialog components
 
-const BACKEND_URL = "/api/backend"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 export interface Tender {
   id: string
@@ -63,7 +63,7 @@ export default function DashboardPage() {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch(`${BACKEND_URL}/workspaces/detailed/`, {
+      const response = await fetch(`${BACKEND_URL}/workspaces/detailed`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
@@ -92,7 +92,7 @@ export default function DashboardPage() {
     setCreateSpaceError(null)
     try {
       // 1. Create the workspace
-      const createResponse = await fetch(`${BACKEND_URL}/workspaces/`, {
+      const createResponse = await fetch(`${BACKEND_URL}/workspaces`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

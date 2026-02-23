@@ -37,13 +37,15 @@ async def lifespan(app: FastAPI):
     """
     Lifespan context manager for application startup and shutdown.
     """
-    # Startup: Langfuse
-    langfuse = get_client()
-    print("Langfuse inicializado correctamente")
+    # Startup: Langfuse (Conditional)
+    langfuse_enabled = os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")
+    langfuse = None
+    if langfuse_enabled:
+        langfuse = get_client()
 
     # Startup: PostgreSQL
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
     
     # Startup: MongoDB
     try:
@@ -62,8 +64,8 @@ async def lifespan(app: FastAPI):
     # Shutdown: Dispose engines and clients
     await engine.dispose()
     await MongoDB.close_database_connection()
-    langfuse.shutdown()
-    print("Langfuse cerrado correctamente")
+    if langfuse:
+        langfuse.shutdown()
 
 
 # Initialize FastAPI application
@@ -79,9 +81,11 @@ app = FastAPI(
 
 # Add CORS Middleware
 origins = [
-    "http://localhost:3000",  # Frontend development server
-    # Add other origins for production if needed
+    "http://localhost:3000",
+    "http://130.110.240.99",
+    "http://130.110.240.99:3000",
 ]
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -107,6 +111,10 @@ app.include_router(chatbot_router)
     summary="Health check",
     tags=["Health"]
 )
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
 async def root():
     """
     Simple health check endpoint.
