@@ -69,7 +69,10 @@ La persistencia de los datos de negocio se gestiona en MongoDB a través de tres
   - `/database`: Configuración de persistencia e inicialización.
     - `/postgres-init`: Scripts SQL para Docker.
   - `/tests`: Pruebas automatizadas (test_auth.py, test_workspaces.py, test_tenders.py).
+  - `requirements.txt`: Dependencias del backend.
 - `docker-compose.yml`: Orquestación de servicios locales (PostgreSQL, Redis, MongoDB).
+- `docker-stack.yml`: Configuración para despliegue en Docker Swarm.
+- `/scripts`: Scripts de automatización para despliegue y mantenimiento.
 - `/frontend`: Aplicación Next.js (App Router).
   - `/app`: Rutas de la aplicación y componentes principales.
   - `/e2e`: Tests End-to-End (E2E) con Playwright.

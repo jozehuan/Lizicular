@@ -17,6 +17,9 @@ from sqlalchemy import select
 import json
 from uuid import UUID
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
 from backend.auth.models import Base
 from backend.automations.models import Automation  # Import Automation model
 from backend.auth.schemas import OAuthUserInfo
@@ -37,13 +40,15 @@ async def lifespan(app: FastAPI):
     """
     Lifespan context manager for application startup and shutdown.
     """
-    # Startup: Langfuse
-    langfuse = get_client()
-    print("Langfuse inicializado correctamente")
+    # Startup: Langfuse (Conditional)
+    langfuse_enabled = os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")
+    langfuse = None
+    if langfuse_enabled:
+        langfuse = get_client()
 
     # Startup: PostgreSQL
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
     
     # Startup: MongoDB
     try:
@@ -62,8 +67,8 @@ async def lifespan(app: FastAPI):
     # Shutdown: Dispose engines and clients
     await engine.dispose()
     await MongoDB.close_database_connection()
-    langfuse.shutdown()
-    print("Langfuse cerrado correctamente")
+    if langfuse:
+        langfuse.shutdown()
 
 
 # Initialize FastAPI application
@@ -78,11 +83,32 @@ app = FastAPI(
 )
 
 # Add CORS Middleware
-origins = [
-    "http://localhost:3000",  # Frontend development server
-    # Add other origins for production if needed
-]
+class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.method == "OPTIONS":
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+    
+def _get_allowed_origins() -> list[str]:
+    """
+    Reads ALLOWED_ORIGINS from env as a comma-separated list.
+    Example: "http://130.110.240.99,http://130.110.240.99:3000"
+    """
+    raw = (os.getenv("ALLOWED_ORIGINS") or "").strip()
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
+    # Fallback defaults (dev + current server IP)
+    return [
+        "http://localhost:3000",
+        "http://130.110.240.99",
+        "http://130.110.240.99:80",
+        "http://130.110.240.99:3000",
+    ]
+origins = _get_allowed_origins()
+
+app.add_middleware(PrivateNetworkAccessMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -107,6 +133,10 @@ app.include_router(chatbot_router)
     summary="Health check",
     tags=["Health"]
 )
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
 async def root():
     """
     Simple health check endpoint.

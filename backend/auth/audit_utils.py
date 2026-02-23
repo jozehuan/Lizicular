@@ -1,7 +1,7 @@
 """
 Audit logging utilities.
 Helpers para crear y consultar logs de auditoría.
-"""
+""" 
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from datetime import datetime, timedelta

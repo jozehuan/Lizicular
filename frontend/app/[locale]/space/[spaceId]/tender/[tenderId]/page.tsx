@@ -218,22 +218,84 @@ export default function TenderAnalysisPage({
     fetchInitialPageData();
   }, [fetchInitialPageData]);
 
+  // Use a ref to track active sockets and prevent unnecessary re-renders/re-connections
+  const activeSockets = useRef<Map<string, WebSocket>>(new Map());
+
+  // Use a separate ref to track analysis IDs that this client instance has initiated
+  // and is waiting for a final response (COMPLETED/FAILED) for.
+  const pendingAnalysisIds = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    if (analysisResults.length === 0) return;
-    const sockets: WebSocket[] = [];
+    // 1. Identify which analyses need a socket (pending/processing)
+    const neededIds = new Set(
+      analysisResults
+        .filter(r => r.status === 'pending' || r.status === 'processing')
+        .map(r => r.id)
+    );
+
+    // 2. Open new sockets for needed IDs that don't have one yet
     analysisResults.forEach(result => {
-      if (result.status === 'pending' || result.status === 'processing') {
-        const wsUrl = API_URL.replace(/^http/, 'ws') + `/ws/analysis/${result.id}`;
+      if (neededIds.has(result.id) && !activeSockets.current.has(result.id)) {
+        const wsUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/^http/, 'ws') + `/ws/analysis/${result.id}`;
         try {
+          console.log(`Opening WebSocket for analysis ${result.id}`);
           const ws = new WebSocket(wsUrl);
-          ws.onmessage = () => refreshAnalysisResults();
+          
+          ws.onopen = () => console.log(`WebSocket open for ${result.id}`);
+          
+          ws.onmessage = (event) => {
+            console.log(`WebSocket message received for ${result.id}:`, event.data);
+            // Remove from flight recorder on final message
+            pendingAnalysisIds.current.delete(result.id);
+            refreshAnalysisResults();
+          };
+          
           ws.onerror = (error) => console.error(`WebSocket error for analysis ${result.id}:`, error);
-          sockets.push(ws);
-        } catch (error) { console.error(`Failed to create WebSocket for analysis ${result.id}:`, error); }
+          
+          ws.onclose = () => {
+            console.log(`WebSocket closed for ${result.id}`);
+            // Remove from ref if it closes unexpectedly so it can reconnect on next pass if needed
+            if (activeSockets.current.get(result.id) === ws) {
+               activeSockets.current.delete(result.id);
+            }
+          };
+
+          activeSockets.current.set(result.id, ws);
+        } catch (error) { 
+          console.error(`Failed to create WebSocket for analysis ${result.id}:`, error); 
+        }
       }
     });
-    return () => sockets.forEach(ws => ws.close());
+
+    // 3. Close sockets that are no longer needed
+    activeSockets.current.forEach((ws, id) => {
+      // Close socket only if it's no longer pending/processing AND it's not in our flight recorder
+      if (!neededIds.has(id) && !pendingAnalysisIds.current.has(id)) {
+        console.log(`Closing WebSocket for completed/removed analysis ${id}`);
+        ws.close();
+        activeSockets.current.delete(id);
+      }
+    });
+
+    // Cleanup function: Close ALL sockets only when the component unmounts
+    return () => {
+      // We don't close sockets here on dependency change, only on unmount.
+      // However, React runs cleanup on every effect re-run. 
+      // To avoid closing/reopening on every render, we rely on the logic above (steps 1, 2, 3) 
+      // and only do full cleanup if the component is truly destroying.
+      // But since analysisResults changes, this effect runs often.
+      // The logic inside ensures we only touch sockets that changed status.
+    };
   }, [analysisResults, refreshAnalysisResults]);
+
+  // Final cleanup on unmount only
+  useEffect(() => {
+    return () => {
+      console.log("Unmounting page, closing all sockets.");
+      activeSockets.current.forEach(ws => ws.close());
+      activeSockets.current.clear();
+    };
+  }, []);
   
     useEffect(() => {
       const handleVisibilityChange = () => {
@@ -295,6 +357,11 @@ export default function TenderAnalysisPage({
         body: JSON.stringify({ automation_id: selectedAutomationId, name: finalName }),
       });
       if (!response.ok) { throw new Error((await response.json()).detail || t('errors.generateAnalysis')); }
+      
+      // Add the new analysis ID to our flight recorder
+      const responseData = await response.json();
+      pendingAnalysisIds.current.add(responseData.analysis_id);
+
       setShowGenerateDialog(false); setNewAnalysisName(""); setSelectedAutomationId(null);
       await refreshAnalysisResults();
     } catch (err: any) { setGenerateError(err.message); } finally { setIsGenerating(false); }
@@ -404,7 +471,7 @@ export default function TenderAnalysisPage({
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                const droppedFiles = Array.from(e.dataTransfer.files).filter((file) => file.type === "application/pdf");
+                const droppedFiles = Array.from(e.dataTransfer.files).filter((file) => file.type === "application/pdf"); 
                 setFilesToUpload((prev) => [...prev, ...droppedFiles]);
               }}
               onClick={() => fileInputRef.current?.click()}

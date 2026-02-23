@@ -110,8 +110,26 @@ CREATE TABLE IF NOT EXISTS autos (
 -- Insertar automatismo por defecto
 -- Nota: La columna owner_id es NOT NULL, por lo que necesitamos un usuario existente.
 -- Insertamos un usuario por defecto si no existe.
-INSERT INTO users (id, email, hashed_password, full_name, is_active)
-VALUES ('00000000-0000-0000-0000-000000000001', 'lizicular@nazaries.com', 'passwordpassword', 'LIZICULAR OWNER', TRUE)
+INSERT INTO users (
+    id, 
+    email, 
+    hashed_password, 
+    full_name, 
+    is_active, 
+    created_at, 
+    updated_at, 
+    profile_picture
+)
+VALUES (
+    '00000000-0000-0000-0000-000000000001', 
+    'lizicular@nazaries.com', 
+    'passwordpassword', 
+    'LIZICULAR OWNER', 
+    TRUE, 
+    NOW(), 
+    NOW(), 
+    '/avatar/blue_lizard.png'
+)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO autos (id, url, name, description, owner_id)

@@ -76,6 +76,10 @@ La aplicación se divide en diferentes módulos, utilizando las siguientes tecno
 - `backend/tenders/`: Gestión de licitaciones y documentos (NoSQL).
 - `backend/database/`: Scripts de inicialización y configuración de DB.
 - `backend/tests/`: Pruebas automatizadas.
+- `backend/requirements.txt`: Dependencias del backend.
+- `docker-compose.yml`: Orquestación de servicios locales.
+- `docker-stack.yml`: Configuración para despliegue en Swarm.
+- `scripts/`: Herramientas de automatización y despliegue.
 
 ## 🔌 API Endpoints
 

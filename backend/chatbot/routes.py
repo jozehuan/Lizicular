@@ -24,7 +24,10 @@ async def ask(
     Receives a question and returns a response from the chatbot.
     This endpoint is protected and requires user authentication.
     """
-    langfuse = get_client()
+    import os
+    langfuse_enabled = os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")
+    langfuse = get_client() if langfuse_enabled else None
+    
     question_content = request.messages[-1].content if request.messages else ""
     
     try:
@@ -59,9 +62,11 @@ async def ask(
         
         # Log the exception with more detail and re-raise
         print(f"Error in /chat endpoint: {e}")
-        langfuse.update_current_trace(metadata={"error": str(e)}, tags=["error"])
+        if langfuse:
+            langfuse.update_current_trace(metadata={"error": str(e)}, tags=["error"])
         raise HTTPException(status_code=500, detail=f"An error occurred in the chat controller: {e}")
 
     finally:
         # Ensure all langfuse data is sent before the response is returned
-        langfuse.flush()
+        if langfuse:
+            langfuse.flush()
