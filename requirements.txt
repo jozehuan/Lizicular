@@ -1,0 +1,37 @@
+# FastAPI Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Database
+sqlalchemy==2.0.25
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-multipart==0.0.20
+
+# HTTP Client for OAuth
+httpx==0.26.0
+
+# Data Validation
+pydantic==2.11.5
+pydantic[email]==2.11.5
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# Redis
+redis==5.0.1
+
+# MongoDB
+motor==3.6.0
+pymongo==4.9.0
+
+# Chatbot (AZURE OPENAI and LangFuse)
+llama-index==0.12.15
+llama-index-agent-openai==0.4.0
+llama-index-embeddings-azure-openai==0.3.0
+langfuse==3.14.1
